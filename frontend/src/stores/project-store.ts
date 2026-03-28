@@ -12,7 +12,7 @@ interface ProjectStore {
   error: string | null;
 
   loadProjects: () => Promise<void>;
-  createProject: (name: string, runtime: "node" | "python") => Promise<Project | null>;
+  createProject: (name: string) => Promise<Project | null>;
   deleteProject: (id: string) => Promise<void>;
 }
 
@@ -35,12 +35,12 @@ export const useProjectStore = create<ProjectStore>((set) => ({
     }
   },
 
-  createProject: async (name, runtime) => {
+  createProject: async (name) => {
     try {
       const res = await fetch(`${BACKEND_URL}/projects/`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, runtime }),
+        body: JSON.stringify({ name }),
       });
       if (!res.ok) throw new Error("Failed to create project");
       const project = await res.json();

@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
 import { useWorkspaceStore } from "@/stores/workspace-store";
 import { WorkspaceShell } from "@/components/layout/workspace-shell";
@@ -42,10 +42,15 @@ function ErrorScreen({ message, onBack }: { message: string; onBack: () => void 
 export default function ProjectPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
-  const { setProject } = useWorkspaceStore();
+  const searchParams = useSearchParams();
+  const { setProject, setPrompt, generate } = useWorkspaceStore();
+
   const [project, setLocalProject] = useState<Project | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Track whether we've fired the initial auto-generate
+  const autoGenFired = useRef(false);
 
   useEffect(() => {
     if (!id) return;
@@ -62,6 +67,24 @@ export default function ProjectPage() {
       .finally(() => setLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
+
+  // Auto-generate from URL params once project is loaded
+  useEffect(() => {
+    if (!project || autoGenFired.current) return;
+    const initialPrompt = searchParams.get("prompt");
+    const modelParam = searchParams.get("models");
+    if (!initialPrompt) return;
+
+    autoGenFired.current = true;
+    const modelIds = modelParam ? modelParam.split(",").filter(Boolean) : [];
+
+    setPrompt(initialPrompt);
+    // Clear URL params without re-render
+    router.replace(`/project/${id}`, { scroll: false });
+    // generate reads prompt from store — setPrompt is synchronous in Zustand
+    generate(modelIds);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project]);
 
   if (loading) return <LoadingScreen />;
   if (error || !project) return <ErrorScreen message={error ?? "Project not found"} onBack={() => router.push("/")} />;
