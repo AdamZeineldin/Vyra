@@ -118,6 +118,7 @@ export function CandidateCard({
             {selectedFile && (
               <CodePreview
                 content={previewContent}
+                filename={selectedFile}
                 maxLines={12}
               />
             )}
@@ -129,6 +130,7 @@ export function CandidateCard({
       {!expanded && !candidate.error && selectedFile && (
         <CodePreview
           content={previewContent}
+          filename={selectedFile}
           maxLines={3}
         />
       )}
