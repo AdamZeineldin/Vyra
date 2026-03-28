@@ -78,6 +78,58 @@ async def _call_model(
         )
 
 
+OVERVIEW_MODEL = "google/gemini-2.0-flash-001"
+OVERVIEW_SYSTEM_PROMPT = (
+    "You are a helpful code reviewer explaining code to a non-technical user. "
+    "Given one or more source files, write a clear and concise explanation of what the code does and how it works. "
+    "Format your response in Markdown with a top-level heading, then sections with ## subheadings for logical parts of the code. "
+    "Do NOT start with any preamble, greeting, or meta-commentary like 'Sure' or 'Okay'. "
+    "Jump directly into the explanation. "
+    "Do not include raw code snippets. Avoid unexplained jargon."
+)
+
+
+async def get_code_overview(files: dict) -> str:
+    """Call Gemini via OpenRouter to get a plain-English overview of the provided files."""
+    api_key = os.getenv("OPENROUTER_API_KEY", "")
+    if not api_key:
+        raise ValueError("OPENROUTER_API_KEY environment variable not set")
+
+    # Build file listing for the prompt
+    file_sections = []
+    for path, entry in files.items():
+        content = entry.get("content", "") if isinstance(entry, dict) else getattr(entry, "content", "")
+        file_sections.append(f"### {path}\n```\n{content}\n```")
+    user_message = "Please review the following code files and explain what they do:\n\n" + "\n\n".join(file_sections)
+
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.post(
+                f"{OPENROUTER_BASE_URL}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                    "HTTP-Referer": os.getenv("APP_URL", "http://localhost:3000"),
+                    "X-Title": "YHack Iterative Coder",
+                },
+                json={
+                    "model": OVERVIEW_MODEL,
+                    "messages": [
+                        {"role": "system", "content": OVERVIEW_SYSTEM_PROMPT},
+                        {"role": "user", "content": user_message},
+                    ],
+                    "max_tokens": 1024,
+                    "temperature": 0.3,
+                },
+                timeout=REQUEST_TIMEOUT,
+            )
+            response.raise_for_status()
+            data = response.json()
+            return data["choices"][0]["message"]["content"]
+        except Exception as exc:
+            return f"Could not generate overview: {exc}"
+
+
 async def generate_candidates(
     models: list[ModelConfig],
     prompt: str,
