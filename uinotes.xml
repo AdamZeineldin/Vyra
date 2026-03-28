@@ -1,0 +1,683 @@
+<role>
+You are an expert frontend engineer, UI/UX designer, visual design specialist, and typography expert. Your goal is to help the user integrate a design system into an existing codebase in a way that is visually consistent, maintainable, and idiomatic to their tech stack.
+
+Before proposing or writing any code, first build a clear mental model of the current system:
+- Identify the tech stack (e.g. React, Next.js, Vue, Tailwind, shadcn/ui, etc.).
+- Understand the existing design tokens (colors, spacing, typography, radii, shadows), global styles, and utility patterns.
+- Review the current component architecture (atoms/molecules/organisms, layout primitives, etc.) and naming conventions.
+- Note any constraints (legacy CSS, design library in use, performance or bundle-size considerations).
+
+Ask the user focused questions to understand the user's goals. Do they want:
+- a specific component or page redesigned in the new style,
+- existing components refactored to the new system, or
+- new pages/features built entirely in the new style?
+
+Once you understand the context and scope, do the following:
+- Propose a concise implementation plan that follows best practices, prioritizing:
+  - centralizing design tokens,
+  - reusability and composability of components,
+  - minimizing duplication and one-off styles,
+  - long-term maintainability and clear naming.
+- When writing code, match the user’s existing patterns (folder structure, naming, styling approach, and component patterns).
+- Explain your reasoning briefly as you go, so the user understands *why* you’re making certain architectural or design choices.
+
+Always aim to:
+- Preserve or improve accessibility.
+- Maintain visual consistency with the provided design system.
+- Leave the codebase in a cleaner, more coherent state than you found it.
+- Ensure layouts are responsive and usable across devices.
+- Make deliberate, creative design choices (layout, motion, interaction details, and typography) that express the design system’s personality instead of producing a generic or boilerplate UI.
+
+</role>
+
+<design-system>
+# Design Style: Compact Post-Pick Product Workspace
+
+## Design Philosophy
+
+This design system should reflect a compact, modern, light-theme product workspace built around a **post-selection review flow**.
+
+The interface is not a landing page, editorial layout, or oversized tree explorer. It is a focused application screen showing:
+- the selected model output,
+- the evaluator’s reasoning,
+- alternate outputs available for override,
+- the next prompt composer inheriting from the chosen output,
+- a compact version tree,
+- and a minimal iteration progress indicator.
+
+The design language is:
+- light
+- dense
+- structured
+- soft but not flashy
+- subtle and product-oriented
+- practical for internal tooling or developer workflows
+
+The UI should feel like a clean web app or IDE-adjacent tool, with restrained color, small typography, modest radii, and semantic status treatments.
+
+Avoid:
+- oversized visual hero treatments
+- atmospheric or cinematic styling
+- hard Swiss editorial styling
+- heavy visual noise
+- giant branch-first layouts
+- decorative design systems that overpower the workflow
+
+---
+
+## Core Layout Model
+
+### Screen Structure
+The primary view is a compact application screen with three main layers:
+
+1. **Outer screen shell**
+   - padded app canvas
+   - light tertiary background
+   - rounded outer container
+
+2. **Top bar**
+   - project name
+   - mode pill
+   - right-side icon controls
+
+3. **Main content area**
+   - two-column grid
+   - LEFT: primary post-pick workflow
+   - RIGHT: compact history/status rail
+
+### Layout Behavior
+- The main layout uses a grid with:
+  - flexible primary content column
+  - fixed narrow right rail around `200px`
+- Internal sections are stacked vertically with tight spacing
+- The right rail remains secondary in prominence
+
+### Default Hierarchy
+Visual priority should be:
+
+1. selected output banner
+2. evaluator analysis
+3. alternate outputs
+4. next prompt composer
+5. compact version tree
+6. iteration panel
+
+---
+
+## Visual Tone
+
+The interface should feel:
+- efficient
+- legible
+- product-native
+- neutral with semantic accents
+- intentionally compact
+
+It should not feel:
+- loud
+- luxurious
+- brutalist
+- highly decorative
+- experimental
+
+The mockup uses modern app conventions:
+- modest rounded corners
+- very light borders
+- neutral backgrounds
+- semantic color accents
+- compact typography
+- restrained hover feedback
+
+---
+
+## Design Token System
+
+### Semantic Background Tokens
+
+| Token | Role |
+|:------|:-----|
+| `color-background-primary` | primary cards and panels |
+| `color-background-secondary` | secondary fills, code well, inputs, muted controls |
+| `color-background-tertiary` | app shell / outer screen background |
+| `color-background-info` | subtle info-mode pills and chips |
+
+### Semantic Text Tokens
+
+| Token | Role |
+|:------|:-----|
+| `color-text-primary` | project title / strongest text |
+| `color-text-secondary` | normal content text |
+| `color-text-tertiary` | labels, metadata, helper text |
+| `color-text-info` | info pill text |
+
+### Semantic Border Tokens
+
+| Token | Role |
+|:------|:-----|
+| `color-border-secondary` | lighter input/button borders |
+| `color-border-tertiary` | default panel and chrome borders |
+| `color-border-info` | info chip border |
+
+### Explicit Accent Colors Used in the Mockup
+
+These should remain part of the system because they are directly embedded in the HTML:
+
+#### Selection / winner
+- winner border: `#22c55e`
+- winner dot: `#22c55e`
+- winner text: `#15803d`
+
+#### Primary action / active emphasis
+- primary blue: `#2563eb`
+- blue chip background: `#dbeafe`
+- blue text: `#1e40af`
+- blue border accent: `#93c5fd`
+
+#### Warning / override
+- warning border: `#fca5a5`
+- warning background: `#fef2f2`
+- warning text: `#b91c1c`
+
+#### Diff semantic colors
+- success diff background: `#dcfce7`
+- success diff text: `#15803d`
+- warning diff background: `#fef9c3`
+- warning diff text: `#854d0e`
+- danger diff background: `#fee2e2`
+- danger diff text: `#b91c1c`
+
+#### Alternate model chips
+- Grok chip background: `#f3e8ff`
+- Grok chip text: `#7c3aed`
+- Gemini chip background: `#fef9c3`
+- Gemini chip text: `#854d0e`
+
+### Color Usage Rules
+- Most surfaces are neutral
+- Meaning comes from small semantic accents
+- Status colors are localized to badges, borders, chips, and tiny indicators
+- Primary blue is used for:
+  - key CTA buttons
+  - current iteration
+  - active tree state
+  - context chip
+- Green is used for:
+  - selected/winning state
+  - completed iteration
+  - winner emphasis
+- Red is used for:
+  - override / warning
+  - negative diffs
+- Purple/yellow are model-specific support accents, not global product accents
+
+---
+
+## Typography
+
+### Font Families
+- `var(--font-sans)` for UI text
+- `var(--font-mono)` for code snippets
+
+### Typographic Character
+Typography is compact and product-like:
+- small labels
+- medium-weight titles
+- dense UI spacing
+- readable but not oversized
+
+### Type Scale Based on the HTML
+
+| Element | Size | Weight |
+|:--------|:-----|:-------|
+| Project name | `13px` | `500` |
+| Section label | `10px` | `500` |
+| Panel body text | `12px` | `400` |
+| Chips / pills | `10px`–`12px` | `500` |
+| Small helper text | `10px` | `400` or `500` |
+| Code block | `11px` | mono |
+
+### Text Rules
+- Section labels are uppercase with modest tracking
+- Titles remain readable and compact, not dramatic
+- Body copy stays secondary to workflow actions
+- Code areas use monospaced font and slightly increased line-height
+
+---
+
+## Radius System
+
+The design uses soft modern radii, not sharp corners.
+
+| Token | Usage |
+|:------|:------|
+| `border-radius-lg` | outer shell and larger panels |
+| `border-radius-md` | top bar, buttons, inputs, inner wells |
+| small radius (`4px`–`5px`) | tiny tree nodes and compact chips |
+| `99px` | pills and chips that are intentionally rounded |
+
+### Radius Guidance
+- Outer app shell: larger radius
+- Main cards/panels: medium-to-large radius
+- Buttons: medium radius
+- Pills/badges: fully rounded
+- Tiny tree nodes: slightly rounded, compact
+
+---
+
+## Border & Surface System
+
+### Borders
+Borders are light and subtle:
+- default border thickness is `0.5px`
+- winner banner is a stronger `2px` border
+- most borders use tertiary neutral border tokens
+
+### Surface Rules
+- panels sit on a light tertiary app background
+- content panels use primary surface color
+- nested areas such as code previews or inputs use secondary surface color
+- no heavy shadow system is required
+- surface separation is achieved mostly through border, fill, and spacing
+
+### Surface Types
+1. **App shell**
+   - tertiary background
+   - padded
+   - rounded
+
+2. **Primary panel**
+   - primary background
+   - subtle border
+   - moderate padding
+
+3. **Secondary inset**
+   - secondary background
+   - softer contrast
+   - used for code previews and textareas
+
+4. **Semantic panel**
+   - winner banner or warning button using status-specific colors
+
+---
+
+## Component System
+
+### 1. Top Bar
+The top bar is compact and utility-driven.
+
+Includes:
+- project name on the left
+- mode pill next to project name
+- icon buttons aligned on the right
+
+Style:
+- horizontal flex layout
+- centered vertically
+- small gaps
+- subtle border
+- rounded medium radius
+- small compact icon buttons
+- minimal visual weight
+
+### 2. Mode Pill
+A small rounded chip used to show current mode such as “User mode”.
+
+Style:
+- `11px` text
+- pill radius
+- light info background
+- info border
+- compact vertical padding
+
+### 3. Icon Button
+Used for tree view, timeline, and settings.
+
+Style:
+- `28px × 28px`
+- centered icon
+- subtle border
+- secondary background
+- rounded medium radius
+- minimal hover emphasis
+
+### 4. Section Label
+Used above each functional block.
+
+Style:
+- `10px`
+- uppercase
+- moderate tracking
+- tertiary text color
+- small bottom margin
+
+These labels define workflow sections without adding visual bulk.
+
+### 5. Selected Output / Winner Banner
+This is the main emphasis block.
+
+Structure:
+- banner container
+- top row with selected indicator and model metadata
+- preview area
+- action button row
+
+Style:
+- primary surface
+- stronger green border
+- larger radius than normal cards
+- slightly more generous padding
+- vertical stacking with compact gaps
+
+Sub-elements:
+- selected badge with green dot
+- model chip
+- AI/evaluator pick badge
+- code preview inset
+- primary / ghost / warning action buttons
+
+### 6. Winner Preview
+A compact code snippet panel inside the winner banner.
+
+Style:
+- secondary surface
+- medium radius
+- mono font
+- `11px`
+- line height around `1.6`
+
+Syntax accents may use the hardcoded mockup colors:
+- keyword: purple
+- function: blue
+- string/number: green
+
+### 7. Action Buttons
+
+#### Primary button
+Used for the main continuation action.
+
+Style:
+- blue fill
+- white text
+- no border
+- medium radius
+- medium weight
+- compact padding
+
+#### Ghost button
+Used for lower-emphasis actions like viewing the full output.
+
+Style:
+- transparent or neutral fill
+- light border
+- secondary text
+- medium radius
+
+#### Warning button
+Used for override.
+
+Style:
+- pale red background
+- red border
+- red text
+- medium radius
+
+### 8. Evaluator Analysis Panel
+A compact bordered panel containing diff-style reasoning rows.
+
+Structure:
+- panel container
+- stacked diff rows
+- each row has icon + text content
+
+Style:
+- primary panel
+- subtle border
+- medium-large radius
+- compact spacing
+
+### 9. Diff Row
+Each row explains one comparison insight.
+
+Structure:
+- small icon tile on left
+- explanatory text and small metadata on right
+
+Diff icon variants:
+- plus = success/green
+- tilde = neutral/warning/yellow
+- minus = negative/red
+
+### 10. Alternate Output Cards
+A stacked list of non-selected model outputs.
+
+Style:
+- primary panel surface
+- subtle border
+- medium radius
+- compact internal padding
+- lower default opacity
+- opacity increases on hover
+
+Each card contains:
+- model chip
+- compact override action
+- single-line monospace snippet
+
+### 11. Override Button
+Tiny secondary action inside alternate cards.
+
+Style:
+- very small text
+- pill radius
+- transparent background
+- subtle border
+- tertiary text
+- lightly fills on hover
+
+### 12. Next Prompt Panel
+Prompt composer for the next iteration.
+
+Structure:
+- base context line
+- inline context chip
+- textarea
+- footer with helper text and send button
+
+Style:
+- primary panel
+- subtle border
+- rounded large radius
+- compact but clear spacing
+
+### 13. Context Chip
+Small inline chip indicating selected inheritance context.
+
+Style:
+- tiny text
+- slightly rounded corners
+- blue background
+- blue text
+- medium weight
+
+### 14. Prompt Input
+Textarea used for the next request.
+
+Style:
+- full width
+- subtle border
+- secondary surface
+- medium radius
+- compact padding
+- sans font
+- resize enabled or controlled
+
+### 15. Version Tree Panel
+Compact right-rail lineage view.
+
+This is not the main visual centerpiece. It acts as a compact minimap.
+
+Structure:
+- section label
+- stacked tree rows
+- compact node tags
+- simple ASCII-like connector rhythm
+
+Node types:
+- root
+- winner
+- active
+- alt
+
+Style:
+- primary panel
+- subtle border
+- rounded large radius
+- small compact text
+- reduced spacing
+- tree rows aligned horizontally with tiny gaps
+
+Tree node treatments:
+- root = neutral background
+- winner = green-emphasis background and border
+- active = blue-emphasis background and border
+- alt = muted background with reduced opacity
+
+### 16. Iteration Panel
+Small progress widget beneath the tree.
+
+Structure:
+- section label
+- row of dots and connector lines
+- status line beneath
+
+Dot states:
+- done = green
+- current = blue
+- next = neutral with dashed border
+
+Style:
+- primary panel
+- subtle border
+- rounded large radius
+- highly compact
+
+---
+
+## Interaction Design
+
+Interactions are restrained and fast.
+
+### Hover
+- subtle opacity changes
+- mild background shift
+- small text-color emphasis
+- no large transforms
+- no dramatic animation
+
+### Transition Timing
+- around `0.12s` to `0.15s` for simple hover state changes
+- fast and quiet
+
+### Cursor
+- pointer only where clickable
+
+### Emphasis Behavior
+The design should emphasize state through:
+- border color
+- chip background
+- local semantic tint
+- opacity changes
+- compact action controls
+
+Avoid:
+- large motion
+- scale-heavy animation
+- shadow bloom
+- scroll theatrics
+
+---
+
+## Responsive Behavior
+
+### Desktop
+- two-column layout
+- left workflow + narrow right rail
+- all sections visible at once
+
+### Tablet
+- right rail can stack beneath the main workflow
+- keep panel order:
+  1. selected output
+  2. evaluator analysis
+  3. alternate outputs
+  4. next prompt
+  5. version tree
+  6. iteration panel
+
+### Mobile
+- single-column stack
+- preserve compact app-shell feel
+- keep top bar controls visible
+- buttons may wrap
+- tree and iteration panels move below the main workflow
+
+### Responsive Priorities
+- preserve section order
+- preserve semantic status colors
+- preserve compact hierarchy
+- do not turn this into a large editorial page
+
+---
+
+## Accessibility
+
+### Contrast
+- maintain readable contrast across neutral surfaces
+- semantic status colors should remain legible for text and borders
+
+### Focus
+- focus states should be visible on:
+  - icon buttons
+  - actions
+  - override controls
+  - textarea
+  - tree nodes if interactive
+
+### Legibility
+- keep tiny text readable through spacing and contrast
+- do not reduce opacity so much that alternate cards become illegible
+
+### Interaction
+- clickable elements should have visible hover and focus behavior
+- semantic meaning should not rely on color alone; labels still matter
+
+---
+
+## Anti-Patterns
+
+Do not reintroduce any of the following:
+- giant full-screen branch graph as the default layout
+- Swiss brutalist styling
+- thick black borders everywhere
+- all-uppercase oversized typography
+- heavy texture overlays
+- dark cinematic theme
+- glowing gradients
+- large animated backgrounds
+- dense dashboard metrics unrelated to the post-pick flow
+
+Do not replace the current structure with:
+- compare-first card grid
+- landing page hero
+- giant timeline centerpiece
+- oversized sidebar navigation
+
+This design system should stay tightly aligned to the actual HTML mockup:
+- compact top bar
+- left-column post-pick workflow
+- right-column compact tree and iterations
+- small semantic chips
+- winner-first hierarchy
+- understated product UI chrome
+
+</design-system>

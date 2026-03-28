@@ -1,0 +1,101 @@
+"""OpenRouter HTTP client — direct API calls, no SDK."""
+from __future__ import annotations
+
+import asyncio
+import os
+
+import httpx
+from pydantic import BaseModel
+
+from app.models.domain import FileMap, ModelConfig
+from app.services.openrouter.parse_response import parse_model_response
+from app.services.openrouter.prompt import build_system_prompt, build_user_message
+
+OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+MAX_TOKENS = 8192
+TEMPERATURE = 0.7
+REQUEST_TIMEOUT = 60.0
+
+
+class CandidateResult(BaseModel):
+    model_id: str
+    model_label: str
+    files: dict  # FileMap serialized
+    raw_response: str
+    error: str | None = None
+    tokens_used: int = 0
+
+
+async def _call_model(
+    client: httpx.AsyncClient,
+    api_key: str,
+    model: ModelConfig,
+    system_prompt: str,
+    user_message: str,
+) -> CandidateResult:
+    """Call a single OpenRouter model and return the parsed result."""
+    try:
+        response = await client.post(
+            f"{OPENROUTER_BASE_URL}/chat/completions",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+                "HTTP-Referer": os.getenv("APP_URL", "http://localhost:3000"),
+                "X-Title": "YHack Iterative Coder",
+            },
+            json={
+                "model": model.id,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_message},
+                ],
+                "max_tokens": MAX_TOKENS,
+                "temperature": TEMPERATURE,
+            },
+            timeout=REQUEST_TIMEOUT,
+        )
+        response.raise_for_status()
+        data = response.json()
+
+        raw = data["choices"][0]["message"]["content"]
+        files = parse_model_response(raw)
+        tokens = data.get("usage", {}).get("total_tokens", 0)
+
+        return CandidateResult(
+            model_id=model.id,
+            model_label=model.label,
+            files={k: v.model_dump() for k, v in files.items()},
+            raw_response=raw,
+            tokens_used=tokens,
+        )
+    except Exception as exc:
+        return CandidateResult(
+            model_id=model.id,
+            model_label=model.label,
+            files={},
+            raw_response="",
+            error=str(exc),
+        )
+
+
+async def generate_candidates(
+    models: list[ModelConfig],
+    prompt: str,
+    current_files: FileMap | None,
+) -> list[CandidateResult]:
+    """Fan out a prompt to multiple models in parallel and return all results."""
+    api_key = os.getenv("OPENROUTER_API_KEY", "")
+    if not api_key:
+        raise ValueError("OPENROUTER_API_KEY environment variable not set")
+
+    system_prompt = build_system_prompt()
+    user_message = build_user_message(prompt, current_files)
+
+    async with httpx.AsyncClient() as client:
+        tasks = [
+            _call_model(client, api_key, model, system_prompt, user_message)
+            for model in models
+        ]
+        results = await asyncio.gather(*tasks, return_exceptions=False)
+
+    return list(results)
