@@ -82,8 +82,8 @@ export function CodePreview({
         {/* Popout icon — top right, visible on hover */}
         <button
           onClick={() => setPopout(true)}
-          title="Open in popout"
-          className="absolute top-2 right-2 z-10 opacity-0 group-hover:opacity-100 transition-opacity duration-fast text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] bg-[var(--color-bg-secondary)] rounded p-0.5"
+          aria-label="Open code in popout"
+          className="absolute top-2 right-2 z-10 opacity-0 group-hover:opacity-100 focus:opacity-100 focus-visible:ring-1 focus-visible:ring-[var(--color-border-info)] transition-opacity duration-fast text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] bg-[var(--color-bg-secondary)] rounded p-0.5"
         >
           <Maximize2 size={11} />
         </button>

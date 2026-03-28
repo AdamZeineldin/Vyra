@@ -8,8 +8,6 @@ import { useProjectStore } from "@/stores/project-store";
 import { ModelSelector } from "@/components/prompt/model-selector";
 import type { ModelConfig } from "@/lib/types";
 
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:8000";
-
 function truncateName(prompt: string, max = 60): string {
   const trimmed = prompt.trim();
   return trimmed.length <= max ? trimmed : trimmed.slice(0, max).trimEnd() + "…";
@@ -22,16 +20,6 @@ export default function HomePage() {
   const [selectedModels, setSelectedModels] = useState<ModelConfig[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-  // Load default models on mount
-  useEffect(() => {
-    fetch(`${BACKEND_URL}/models/`)
-      .then((r) => r.json())
-      .then((models: ModelConfig[]) => {
-        if (models.length > 0) setSelectedModels([models[0]]);
-      })
-      .catch(() => {});
-  }, []);
 
   // Auto-resize textarea
   useEffect(() => {
@@ -46,9 +34,10 @@ export default function HomePage() {
     setSubmitting(true);
     const project = await createProject(truncateName(prompt));
     if (project) {
-      const modelParam = selectedModels.map((m) => m.id).join(",");
-      const promptParam = encodeURIComponent(prompt.trim());
-      router.push(`/project/${project.id}?prompt=${promptParam}&models=${modelParam}`);
+      const params = new URLSearchParams();
+      params.set("prompt", prompt.trim());
+      params.set("models", selectedModels.map((m) => m.id).join(","));
+      router.push(`/project/${project.id}?${params.toString()}`);
     } else {
       setSubmitting(false);
     }
@@ -98,7 +87,7 @@ export default function HomePage() {
 
           {/* Toolbar row */}
           <div className="flex items-center justify-between px-3 pb-3 gap-3">
-            <ModelSelector selected={selectedModels} onChange={setSelectedModels} />
+            <ModelSelector selected={selectedModels} onChange={setSelectedModels} autoSelectFirst />
             <button
               onClick={handleSubmit}
               disabled={!canSubmit}

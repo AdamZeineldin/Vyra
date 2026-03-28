@@ -24,7 +24,6 @@ function IconButton({ icon, label, onClick }: IconButtonProps) {
 
 interface TopBarProps {
   projectName: string;
-  onToggleTree?: () => void;
 }
 
 const MODE_CYCLE: WorkspaceMode[] = ["user", "hybrid", "agent"];
@@ -40,7 +39,7 @@ function nextMode(current: WorkspaceMode): WorkspaceMode {
   return MODE_CYCLE[(idx + 1) % MODE_CYCLE.length];
 }
 
-export function TopBar({ projectName, onToggleTree }: TopBarProps) {
+export function TopBar({ projectName }: TopBarProps) {
   const { mode, setMode } = useWorkspaceStore();
 
   return (

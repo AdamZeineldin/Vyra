@@ -54,6 +54,12 @@ export default function ProjectPage() {
 
   useEffect(() => {
     if (!id) return;
+    // Reset state so a route change to a different project starts fresh
+    setLocalProject(null);
+    setLoading(true);
+    setError(null);
+    autoGenFired.current = false;
+
     fetch(`${BACKEND_URL}/projects/${id}`)
       .then((r) => {
         if (!r.ok) throw new Error("Project not found");
