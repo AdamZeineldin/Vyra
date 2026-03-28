@@ -8,6 +8,7 @@ coverage/
 .pnp.js
 npm-debug.log*
 yarn-debug.log*
+*.tsbuildinfo
 
 # ── Python ────────────────────────────────────────────────────────────────────
 __pycache__/

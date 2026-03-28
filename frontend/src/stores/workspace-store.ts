@@ -44,7 +44,7 @@ interface WorkspaceStore {
   evaluateAll: () => Promise<void>;
   selectCandidate: (candidateId: string, reason?: string) => Promise<void>;
   loadVersionTree: (projectId: string) => Promise<Version[]>;
-  revertToVersion: (versionId: string) => Promise<void>;
+  revertToVersion: (versionId: string) => Promise<boolean>;
   navigateToVersion: (versionId: string) => Promise<void>;
   navigateToCandidate: (versionId: string, candidateId: string) => Promise<void>;
 }
@@ -244,7 +244,7 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
 
   revertToVersion: async (versionId) => {
     const { project } = get();
-    if (!project) return;
+    if (!project) return false;
 
     set({ isReverting: true, error: null });
 
@@ -291,8 +291,10 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
           [versionId]: candidates,
         },
       }));
+      return true;
     } catch (e) {
       set({ error: e instanceof Error ? e.message : "Revert failed" });
+      return false;
     } finally {
       set({ isReverting: false });
     }
@@ -304,7 +306,9 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
   },
 
   navigateToCandidate: async (versionId, candidateId) => {
-    await get().revertToVersion(versionId);
-    set({ activeCandidateId: candidateId });
+    const success = await get().revertToVersion(versionId);
+    if (success) {
+      set({ activeCandidateId: candidateId });
+    }
   },
 }));

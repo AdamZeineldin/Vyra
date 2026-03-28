@@ -152,6 +152,7 @@ export function TreeMinimap() {
     project,
     activeVersionId,
     activeCandidateId,
+    selectedCandidateId,
     versionHistory,
     candidatesByVersionId,
     loadVersionTree,
@@ -165,7 +166,7 @@ export function TreeMinimap() {
     if (!project?.id) return;
     loadVersionTree(project.id).then(setVersions);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [project?.id, activeVersionId]);
+  }, [project?.id, activeVersionId, selectedCandidateId]);
 
   const roots = buildTree(versions);
 
