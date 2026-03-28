@@ -52,9 +52,10 @@ export function WorkspaceShell({ project }: WorkspaceShellProps) {
   } = useWorkspaceStore();
 
   const [selectedModels, setSelectedModels] = useState<ModelConfig[]>(
-    project.models as ModelConfig[]
+    project.models as ModelConfig[],
   );
-  const [overridingCandidate, setOverridingCandidate] = useState<Candidate | null>(null);
+  const [overridingCandidate, setOverridingCandidate] =
+    useState<Candidate | null>(null);
   const [toastError, setToastError] = useState<string | null>(null);
 
   // Surface store errors as toasts
@@ -94,13 +95,13 @@ export function WorkspaceShell({ project }: WorkspaceShellProps) {
         <div className="flex gap-3 items-start">
           {/* LEFT: primary workflow */}
           <div className="flex-1 min-w-0 flex flex-col gap-3">
-
             {/* Loading / reverting state */}
             {(isLoading || isReverting) && (
               <Panel padding="md">
                 <div className="flex items-center gap-2.5 text-[12px] text-[var(--color-text-tertiary)]">
                   <span className="w-4 h-4 rounded-full border-2 border-primary-blue border-t-transparent animate-spin flex-shrink-0" />
-                  {isGenerating && `Generating from ${selectedModels.length} models in parallel…`}
+                  {isGenerating &&
+                    `Generating from ${selectedModels.length} models in parallel…`}
                   {isExecuting && "Running code in sandbox…"}
                   {isReverting && "Loading version…"}
                   {isEvaluating && "Evaluating candidates…"}
@@ -151,7 +152,9 @@ export function WorkspaceShell({ project }: WorkspaceShellProps) {
                 {/* Other outputs */}
                 {others.length > 0 && (
                   <div>
-                    <SectionHeader>OTHER OUTPUTS — CLICK TO OVERRIDE</SectionHeader>
+                    <SectionHeader>
+                      OTHER OUTPUTS — CLICK TO OVERRIDE
+                    </SectionHeader>
                     <div className="flex flex-col gap-2">
                       {others.map((c) => (
                         <CandidateCard
@@ -193,16 +196,23 @@ export function WorkspaceShell({ project }: WorkspaceShellProps) {
                     <span className="text-[11px] text-primary-blue-text">
                       Evaluator recommends:{" "}
                       <span className="font-medium">
-                        {candidates.find((c) => c.id === evaluationSummary.bestCandidateId)?.modelLabel}
+                        {
+                          candidates.find(
+                            (c) => c.id === evaluationSummary.bestCandidateId,
+                          )?.modelLabel
+                        }
                       </span>
                       <span className="ml-1.5 text-[10px] opacity-70">
-                        (confidence: {Math.round(evaluationSummary.confidence * 100)}%)
+                        (confidence:{" "}
+                        {Math.round(evaluationSummary.confidence * 100)}%)
                       </span>
                     </span>
                     <Button
                       variant="primary"
                       size="sm"
-                      onClick={() => selectCandidate(evaluationSummary.bestCandidateId!)}
+                      onClick={() =>
+                        selectCandidate(evaluationSummary.bestCandidateId!)
+                      }
                     >
                       Accept recommendation
                     </Button>
@@ -216,7 +226,9 @@ export function WorkspaceShell({ project }: WorkspaceShellProps) {
                       candidate={c}
                       isWinner={false}
                       onSelect={(id) => selectCandidate(id)}
-                      highlightIfRecommended={c.id === evaluationSummary?.bestCandidateId}
+                      highlightIfRecommended={
+                        c.id === evaluationSummary?.bestCandidateId
+                      }
                     />
                   ))}
                 </div>
@@ -234,14 +246,15 @@ export function WorkspaceShell({ project }: WorkspaceShellProps) {
 
             {/* Next prompt */}
             <div>
-              {hasResults && (
-                <SectionHeader>{nextPromptLabel}</SectionHeader>
-              )}
+              {hasResults && <SectionHeader>{nextPromptLabel}</SectionHeader>}
               <PromptInput
                 modelIds={selectedModels.map((m) => m.id)}
                 currentIteration={iterationCount}
                 modelSelector={
-                  <ModelSelector selected={selectedModels} onChange={setSelectedModels} />
+                  <ModelSelector
+                    selected={selectedModels}
+                    onChange={setSelectedModels}
+                  />
                 }
               />
             </div>
@@ -274,7 +287,11 @@ export function WorkspaceShell({ project }: WorkspaceShellProps) {
 
       {toastError && (
         <ToastContainer>
-          <Toast message={toastError} variant="error" onDismiss={() => setToastError(null)} />
+          <Toast
+            message={toastError}
+            variant="error"
+            onDismiss={() => setToastError(null)}
+          />
         </ToastContainer>
       )}
     </div>
