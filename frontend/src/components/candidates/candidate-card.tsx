@@ -1,11 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import type { Candidate } from "@/lib/types";
 import { Panel } from "@/components/ui/panel";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { getModelAccentBorder } from "@/lib/model-colors";
 import { ModelChip } from "./model-chip";
 import { FileExplorer } from "./file-explorer";
 import { CodePreview } from "./code-preview";
@@ -13,6 +14,7 @@ import { CodePreview } from "./code-preview";
 interface CandidateCardProps {
   candidate: Candidate;
   isWinner?: boolean;
+  isActive?: boolean;
   onSelect?: (id: string) => void;
   showOverride?: boolean;
   highlightIfRecommended?: boolean;
@@ -21,28 +23,42 @@ interface CandidateCardProps {
 export function CandidateCard({
   candidate,
   isWinner,
+  isActive,
   onSelect,
   showOverride,
   highlightIfRecommended,
 }: CandidateCardProps) {
+  const cardRef = useRef<HTMLDivElement>(null);
   const [selectedFile, setSelectedFile] = useState<string | null>(
     Object.keys(candidate.files)[0] ?? null
   );
   const [expanded, setExpanded] = useState(isWinner ?? false);
+
+  // Scroll into view when this card becomes active via tree navigation
+  useEffect(() => {
+    if (isActive && cardRef.current) {
+      cardRef.current.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+  }, [isActive]);
 
   const fileCount = Object.keys(candidate.files).length;
   const previewContent = selectedFile
     ? candidate.files[selectedFile]?.content ?? ""
     : "";
 
+  const accentBorder = getModelAccentBorder(candidate.modelId ?? "");
+
   return (
+    <div ref={cardRef}>
     <Panel
       variant={isWinner ? "winner" : "default"}
       padding="md"
       className={[
-        !isWinner && !highlightIfRecommended ? "opacity-70 hover:opacity-100" : "",
+        accentBorder,
+        !isWinner && !highlightIfRecommended && !isActive ? "opacity-70 hover:opacity-100" : "",
         highlightIfRecommended && !isWinner ? "border-primary-blue-border border-2" : "",
-        "transition-opacity duration-fast",
+        isActive && !isWinner ? "ring-1 ring-[var(--color-primary-blue)] ring-offset-1 ring-offset-[var(--color-bg-tertiary)]" : "",
+        "transition-all duration-200",
       ].join(" ")}
     >
       {/* Header row */}
@@ -135,5 +151,6 @@ export function CandidateCard({
         />
       )}
     </Panel>
+    </div>
   );
 }

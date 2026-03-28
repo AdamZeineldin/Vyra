@@ -5,6 +5,7 @@ const config: Config = {
     "./src/pages/**/*.{js,ts,jsx,tsx,mdx}",
     "./src/components/**/*.{js,ts,jsx,tsx,mdx}",
     "./src/app/**/*.{js,ts,jsx,tsx,mdx}",
+    "./src/lib/**/*.{js,ts,jsx,tsx}",
   ],
   theme: {
     extend: {
@@ -45,6 +46,14 @@ const config: Config = {
         "openai-text": "#4ade80",
         "claude-bg": "#1e1a10",
         "claude-text": "#fb923c",
+        // DeepSeek — cyan/teal
+        "deepseek-bg": "#001418",
+        "deepseek-text": "#22d3ee",
+        "deepseek-border": "#0e7490",
+        // Meta Llama — orange
+        "llama-bg": "#1a0f00",
+        "llama-text": "#fb923c",
+        "llama-border": "#92400e",
       },
       borderRadius: {
         shell: "12px",

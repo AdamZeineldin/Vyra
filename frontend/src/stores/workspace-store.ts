@@ -32,6 +32,8 @@ interface WorkspaceStore {
   error: string | null;
   versionHistory: Version[];
   activeVersionId: string | null;
+  activeCandidateId: string | null;
+  candidatesByVersionId: Record<string, Candidate[]>;
 
   setProject: (project: Project) => void;
   setMode: (mode: WorkspaceMode) => void;
@@ -43,6 +45,8 @@ interface WorkspaceStore {
   selectCandidate: (candidateId: string, reason?: string) => Promise<void>;
   loadVersionTree: (projectId: string) => Promise<Version[]>;
   revertToVersion: (versionId: string) => Promise<void>;
+  navigateToVersion: (versionId: string) => Promise<void>;
+  navigateToCandidate: (versionId: string, candidateId: string) => Promise<void>;
 }
 
 export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
@@ -61,6 +65,8 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
   error: null,
   versionHistory: [],
   activeVersionId: null,
+  activeCandidateId: null,
+  candidatesByVersionId: {},
 
   setProject: (project) => set({ project }),
   setMode: (mode) => set({ mode }),
@@ -105,8 +111,13 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
         currentVersion: newVersion,
         activeVersionId: data.version_id,
         versionHistory: [...state.versionHistory, newVersion],
+        candidatesByVersionId: {
+          ...state.candidatesByVersionId,
+          [data.version_id]: candidates,
+        },
         prompt: "",
         iterationCount: state.iterationCount + 1,
+        activeCandidateId: null,
       }));
 
       // In agent/hybrid mode: auto-execute + evaluate, then conditionally auto-select
@@ -267,18 +278,33 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
         ({ id: versionId } as Version);
 
       // Navigate to the target version without deleting future versions
-      set({
+      set((state) => ({
         activeVersionId: versionId,
         currentVersion: revertedVersion,
         candidates,
         selectedCandidateId: winner?.id ?? null,
         iterationCount,
         evaluationSummary: null,
-      });
+        activeCandidateId: null,
+        candidatesByVersionId: {
+          ...state.candidatesByVersionId,
+          [versionId]: candidates,
+        },
+      }));
     } catch (e) {
       set({ error: e instanceof Error ? e.message : "Revert failed" });
     } finally {
       set({ isReverting: false });
     }
+  },
+
+  navigateToVersion: async (versionId) => {
+    await get().revertToVersion(versionId);
+    // activeCandidateId already reset to null inside revertToVersion
+  },
+
+  navigateToCandidate: async (versionId, candidateId) => {
+    await get().revertToVersion(versionId);
+    set({ activeCandidateId: candidateId });
   },
 }));
