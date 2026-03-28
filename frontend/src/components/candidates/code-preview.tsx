@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { Maximize2, X } from "lucide-react";
 
@@ -20,6 +20,9 @@ function FilePopout({
   filename?: string;
   onClose: () => void;
 }) {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  if (!mounted) return null;
   return createPortal(
     <div
       className="fixed inset-0 z-50 flex items-center justify-center"
@@ -82,8 +85,8 @@ export function CodePreview({
         {/* Popout icon — top right, visible on hover */}
         <button
           onClick={() => setPopout(true)}
-          title="Open in popout"
-          className="absolute top-2 right-2 z-10 opacity-0 group-hover:opacity-100 transition-opacity duration-fast text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] bg-[var(--color-bg-secondary)] rounded p-0.5"
+          aria-label="Open code in popout"
+          className="absolute top-2 right-2 z-10 opacity-0 group-hover:opacity-100 focus:opacity-100 focus-visible:ring-1 focus-visible:ring-[var(--color-border-info)] transition-opacity duration-fast text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] bg-[var(--color-bg-secondary)] rounded p-0.5"
         >
           <Maximize2 size={11} />
         </button>

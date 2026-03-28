@@ -22,7 +22,6 @@ export interface Project {
   readonly id: string;
   readonly name: string;
   readonly description: string;
-  readonly runtime: "node" | "python";
   readonly models: readonly ModelConfig[];
   readonly rootVersionId: string | null;
   readonly currentVersionId: string | null;
