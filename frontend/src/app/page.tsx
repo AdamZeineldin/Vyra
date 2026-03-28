@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import { ArrowUp, Loader2 } from "lucide-react";
 import { useProjectStore } from "@/stores/project-store";
 import { ModelSelector } from "@/components/prompt/model-selector";
@@ -65,11 +66,19 @@ export default function HomePage() {
   return (
     <div className="h-full min-h-screen bg-[var(--color-bg-tertiary)] flex flex-col items-center justify-center p-6">
       <div className="w-full max-w-2xl flex flex-col gap-6">
+        {/* Branding */}
+        <div className="flex items-center justify-center gap-2">
+          <Image src="/logo.png" alt="Vyra" width={104} height={104} />
+          <h1 className="text-[108px] font-semibold tracking-tight text-[var(--color-text-primary)]">
+            Vyra
+          </h1>
+        </div>
+
         {/* Heading */}
         <div className="text-center">
-          <h1 className="text-[20px] font-semibold text-[var(--color-text-primary)] tracking-tight">
+          <h2 className="text-[20px] font-semibold text-[var(--color-text-primary)] tracking-tight">
             What do you want to build?
-          </h1>
+          </h2>
           <p className="text-[13px] text-[var(--color-text-tertiary)] mt-1">
             Describe your project and multiple models will generate candidates in parallel.
           </p>
