@@ -107,6 +107,10 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
         versionHistory: [...state.versionHistory, newVersion],
         prompt: "",
         iterationCount: state.iterationCount + 1,
+        // Update project name if backend generated a title on first generation
+        project: state.project && data.project_name
+          ? { ...state.project, name: data.project_name }
+          : state.project,
       }));
 
       // In agent/hybrid mode: auto-execute + evaluate, then conditionally auto-select

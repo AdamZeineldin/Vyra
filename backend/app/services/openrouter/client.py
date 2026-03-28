@@ -78,7 +78,8 @@ async def _call_model(
         )
 
 
-OVERVIEW_MODEL = "google/gemini-2.0-flash-001"
+GEMINI_MODEL = "google/gemini-2.0-flash-001"
+OVERVIEW_MODEL = GEMINI_MODEL
 OVERVIEW_SYSTEM_PROMPT = (
     "You are a helpful code reviewer explaining code to a non-technical user. "
     "Given one or more source files, write a clear and concise explanation of what the code does and how it works. "
@@ -87,6 +88,48 @@ OVERVIEW_SYSTEM_PROMPT = (
     "Jump directly into the explanation. "
     "Do not include raw code snippets. Avoid unexplained jargon."
 )
+
+
+async def get_project_title(prompt: str) -> str:
+    """Call Gemini to turn a user prompt into a short project title (2-4 words)."""
+    api_key = os.getenv("OPENROUTER_API_KEY", "")
+    if not api_key:
+        return prompt[:60]
+
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.post(
+                f"{OPENROUTER_BASE_URL}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                    "HTTP-Referer": os.getenv("APP_URL", "http://localhost:3000"),
+                    "X-Title": "YHack Iterative Coder",
+                },
+                json={
+                    "model": GEMINI_MODEL,
+                    "messages": [
+                        {
+                            "role": "system",
+                            "content": (
+                                "You generate concise project titles. "
+                                "Given a user's coding request, reply with ONLY a short title of 2-4 words, "
+                                "in title case. No punctuation, no quotes, no explanation."
+                            ),
+                        },
+                        {"role": "user", "content": prompt},
+                    ],
+                    "max_tokens": 20,
+                    "temperature": 0.3,
+                },
+                timeout=REQUEST_TIMEOUT,
+            )
+            response.raise_for_status()
+            data = response.json()
+            title = data["choices"][0]["message"]["content"].strip().strip('"').strip("'")
+            return title or prompt[:60]
+        except Exception:
+            return prompt[:60]
 
 
 async def get_code_overview(files: dict) -> str:

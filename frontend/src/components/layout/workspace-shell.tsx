@@ -37,6 +37,7 @@ interface WorkspaceShellProps {
 
 export function WorkspaceShell({ project }: WorkspaceShellProps) {
   const {
+    project: storeProject,
     candidates,
     selectedCandidateId,
     evaluationSummary,
@@ -90,7 +91,7 @@ export function WorkspaceShell({ project }: WorkspaceShellProps) {
   return (
     <div className="min-h-screen bg-[var(--color-bg-tertiary)] p-4">
       <div className="max-w-[1080px] mx-auto flex flex-col gap-3">
-        <TopBar projectName={project.name} />
+        <TopBar projectName={storeProject?.name ?? project.name} />
 
         <div className="flex gap-3 items-start">
           {/* LEFT: primary workflow */}
