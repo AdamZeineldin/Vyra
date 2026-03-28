@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { Maximize2, X } from "lucide-react";
 
@@ -20,6 +20,9 @@ function FilePopout({
   filename?: string;
   onClose: () => void;
 }) {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  if (!mounted) return null;
   return createPortal(
     <div
       className="fixed inset-0 z-50 flex items-center justify-center"
