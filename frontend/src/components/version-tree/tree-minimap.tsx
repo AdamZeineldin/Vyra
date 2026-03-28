@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { ChevronRight } from "lucide-react";
 import { useWorkspaceStore } from "@/stores/workspace-store";
-import { SectionLabel } from "@/components/ui/section-label";
 import { Panel } from "@/components/ui/panel";
 import { buildTree } from "@/lib/version-tree";
 import { getModelTreePillStyle } from "@/lib/model-colors";
@@ -78,6 +78,15 @@ interface TreeContext {
 // ---------------------------------------------------------------------------
 
 const DEPTH_INDENT_PX = 10;
+const PROMPT_LABEL_MAX = 22;
+
+function promptLabel(promptNumber: number, prompt: string): string {
+  if (promptNumber === 1) return "Initial prompt";
+  if (!prompt) return `Prompt ${promptNumber}`;
+  return prompt.length > PROMPT_LABEL_MAX
+    ? prompt.slice(0, PROMPT_LABEL_MAX).trimEnd() + "…"
+    : prompt;
+}
 
 function VersionNode({
   node,
@@ -97,28 +106,53 @@ function VersionNode({
 
   const isActiveVersion = node.version.id === activeVersionId;
   const candidates = candidatesByVersionId[node.version.id] ?? [];
-  const promptNumber = promptNumberMap.get(node.version.id) ?? node.depth + 1;
+  const promptNum = promptNumberMap.get(node.version.id) ?? node.depth + 1;
   const leftPad = node.depth * DEPTH_INDENT_PX;
+  const label = promptLabel(promptNum, node.version.prompt);
+
+  // Inactive nodes start collapsed; active node starts expanded
+  const [collapsed, setCollapsed] = useState(!isActiveVersion);
+
+  // Auto-expand when this version becomes active
+  useEffect(() => {
+    if (isActiveVersion) setCollapsed(false);
+  }, [isActiveVersion]);
+
+  const hasCandidates = candidates.length > 0;
+
+  const handlePromptClick = () => {
+    onNavigateVersion(node.version.id);
+    if (hasCandidates) setCollapsed((c) => !c);
+  };
 
   return (
     <div style={{ paddingLeft: leftPad }}>
-      {/* Prompt pill */}
+      {/* Prompt header */}
       <button
-        onClick={() => onNavigateVersion(node.version.id)}
+        onClick={handlePromptClick}
         title={node.version.prompt || "Initial version"}
         className={[
           "w-full text-left px-2 py-1 rounded text-[10px] font-medium mb-0.5",
-          "transition-all duration-200 cursor-pointer truncate block",
+          "flex items-center gap-1 transition-all duration-200 cursor-pointer",
           isActiveVersion
             ? "bg-[var(--color-bg-tertiary)] text-[var(--color-text-primary)]"
             : "bg-[var(--color-bg-secondary)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]",
         ].join(" ")}
       >
-        Prompt {promptNumber}
+        <span className="flex-1 truncate">{label}</span>
+        {hasCandidates && (
+          <ChevronRight
+            size={9}
+            className={[
+              "shrink-0 transition-transform duration-200 opacity-50",
+              collapsed ? "" : "rotate-90",
+            ].join(" ")}
+          />
+        )}
       </button>
 
-      {/* Candidate rows */}
-      {candidates.length > 0 && (
+      {/* Candidate rows — hidden when collapsed */}
+      {!collapsed && hasCandidates && (
         <div className="pl-2 mb-1">
           {candidates.map((c, i) => (
             <CandidateRow
@@ -158,6 +192,7 @@ export function TreeMinimap() {
     loadVersionTree,
     navigateToVersion,
     navigateToCandidate,
+    selectCandidate,
   } = useWorkspaceStore();
 
   const [versions, setVersions] = useState<Version[]>([]);
@@ -175,19 +210,22 @@ export function TreeMinimap() {
     versionHistory.map((v, i) => [v.id, i + 1])
   );
 
+  const handleNavigateCandidate = async (versionId: string, candidateId: string) => {
+    await navigateToCandidate(versionId, candidateId);
+    await selectCandidate(candidateId);
+  };
+
   const ctx: TreeContext = {
     candidatesByVersionId,
     promptNumberMap,
     activeVersionId,
     activeCandidateId,
     onNavigateVersion: navigateToVersion,
-    onNavigateCandidate: navigateToCandidate,
+    onNavigateCandidate: handleNavigateCandidate,
   };
 
   return (
     <Panel padding="sm">
-      <SectionLabel className="mb-2">Version tree</SectionLabel>
-
       {versions.length === 0 ? (
         <div className="text-[10px] text-[var(--color-text-tertiary)] italic">
           No versions yet
