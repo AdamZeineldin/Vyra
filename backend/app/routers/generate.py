@@ -9,7 +9,7 @@ from fastapi import APIRouter, HTTPException
 
 from app.db import CandidateDoc, ProjectDoc, VersionDoc
 from app.models.domain import FileEntry, GenerateRequest
-from app.services.openrouter.client import generate_candidates
+from app.services.openrouter.client import generate_candidates, get_project_title
 from app.services.openrouter.models import AVAILABLE_MODELS, get_model_by_id
 
 router = APIRouter(prefix="/generate", tags=["generate"])
@@ -53,6 +53,13 @@ async def generate(body: GenerateRequest):
     )
     await version.insert()
 
+    # On first generation, generate a proper project title
+    is_first_generation = not body.parent_version_id
+    if is_first_generation:
+        title = await get_project_title(body.prompt)
+        await project.set({ProjectDoc.name: title})
+        project = await ProjectDoc.get(project.id)
+
     # Fan out to models
     results = await generate_candidates(models, body.prompt, current_files)
 
@@ -77,6 +84,7 @@ async def generate(body: GenerateRequest):
 
     return {
         "version_id": str(version.id),
+        "project_name": project.name,
         "candidates": [
             {
                 "id": str(c.id),

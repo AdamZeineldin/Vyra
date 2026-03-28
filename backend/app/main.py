@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.db import init_db
-from app.routers import execute, generate, models, projects, versions
+from app.routers import execute, generate, models, overview, projects, versions
 
 load_dotenv(find_dotenv(usecwd=True))
 
@@ -34,6 +34,7 @@ app.include_router(generate.router)
 app.include_router(versions.router)
 app.include_router(models.router)
 app.include_router(execute.router)
+app.include_router(overview.router)
 
 
 @app.get("/health")

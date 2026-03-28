@@ -6,6 +6,7 @@ import Image from "next/image";
 import { SquarePen, Trash2, UserCircle, Settings, X, LogOut } from "lucide-react";
 import { useSession, signIn, signOut } from "next-auth/react";
 import { useProjectStore } from "@/stores/project-store";
+import { useWorkspaceStore } from "@/stores/workspace-store";
 
 function SettingsModal({ onClose }: { onClose: () => void }) {
   return (
@@ -82,6 +83,7 @@ export function ProjectSidebar() {
   const pathname = usePathname();
   const { projects, isLoading, loadProjects, deleteProject } = useProjectStore();
   const { data: session } = useSession();
+  const activeProjectName = useWorkspaceStore((s) => s.project?.name);
 
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -152,7 +154,9 @@ export function ProjectSidebar() {
                 }`}
                 onClick={() => router.push(`/project/${p.id}`)}
               >
-                <span className="flex-1 text-[12px] truncate">{p.name}</span>
+                <span className="flex-1 text-[12px] truncate">
+                  {isActive && activeProjectName ? activeProjectName : p.name}
+                </span>
 
                 {confirmDeleteId === p.id ? (
                   <div

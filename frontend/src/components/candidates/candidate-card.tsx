@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useState, useEffect, useRef } from "react";
+import ReactMarkdown from "react-markdown";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import type { Candidate } from "@/lib/types";
 import { Panel } from "@/components/ui/panel";
@@ -10,6 +11,8 @@ import { getModelAccentBorder } from "@/lib/model-colors";
 import { ModelChip } from "./model-chip";
 import { FileExplorer } from "./file-explorer";
 import { CodePreview } from "./code-preview";
+
+const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:8000";
 
 interface CandidateCardProps {
   candidate: Candidate;
@@ -33,6 +36,22 @@ export function CandidateCard({
     Object.keys(candidate.files)[0] ?? null
   );
   const [expanded, setExpanded] = useState(isWinner ?? false);
+  const [overview, setOverview] = useState<string | null>(null);
+  const [isLoadingOverview, setIsLoadingOverview] = useState(false);
+  const lastFetchedId = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!expanded) return;
+    if (lastFetchedId.current === candidate.id) return;
+    lastFetchedId.current = candidate.id;
+    setOverview(null);
+    setIsLoadingOverview(true);
+    fetch(`${BACKEND_URL}/overview/candidate/${candidate.id}`)
+      .then((res) => res.ok ? res.json() : Promise.reject())
+      .then((data) => setOverview(data.overview as string))
+      .catch(() => setOverview("Could not load AI overview."))
+      .finally(() => setIsLoadingOverview(false));
+  }, [expanded, candidate.id]);
 
   // Scroll into view when this card becomes active via tree navigation
   useEffect(() => {
@@ -119,27 +138,45 @@ export function CandidateCard({
 
       {/* Expanded content */}
       {expanded && (
-        <div className="flex gap-3 mt-2">
-          {/* File tree */}
-          <div className="w-40 flex-shrink-0">
-            <FileExplorer
-              files={candidate.files}
-              selectedPath={selectedFile ?? undefined}
-              onSelectFile={setSelectedFile}
-            />
+        <>
+          <div className="flex gap-3 mt-2">
+            {/* File tree */}
+            <div className="w-40 flex-shrink-0">
+              <FileExplorer
+                files={candidate.files}
+                selectedPath={selectedFile ?? undefined}
+                onSelectFile={setSelectedFile}
+              />
+            </div>
+
+            {/* Code preview */}
+            <div className="flex-1 min-w-0">
+              {selectedFile && (
+                <CodePreview
+                  content={previewContent}
+                  filename={selectedFile}
+                  maxLines={12}
+                />
+              )}
+            </div>
           </div>
 
-          {/* Code preview */}
-          <div className="flex-1 min-w-0">
-            {selectedFile && (
-              <CodePreview
-                content={previewContent}
-                filename={selectedFile}
-                maxLines={12}
-              />
-            )}
+          {/* AI Overview */}
+          <div className="mt-3 pt-3 border-t border-[var(--color-border-secondary)]">
+            <div className="text-[10px] font-medium text-[var(--color-text-tertiary)] uppercase tracking-wide mb-1.5">
+              AI Overview
+            </div>
+            {isLoadingOverview ? (
+              <div className="text-[11px] text-[var(--color-text-tertiary)] animate-pulse">
+                Generating overview…
+              </div>
+            ) : overview ? (
+              <div className="prose-overview text-[11px] text-[var(--color-text-secondary)] leading-relaxed [&_h1]:text-[13px] [&_h1]:font-semibold [&_h1]:text-[var(--color-text-primary)] [&_h1]:mb-2 [&_h2]:text-[12px] [&_h2]:font-semibold [&_h2]:text-[var(--color-text-primary)] [&_h2]:mt-3 [&_h2]:mb-1 [&_h3]:text-[11px] [&_h3]:font-semibold [&_h3]:text-[var(--color-text-secondary)] [&_h3]:mt-2 [&_h3]:mb-1 [&_p]:mb-2 [&_ul]:list-disc [&_ul]:pl-4 [&_ul]:mb-2 [&_li]:mb-0.5">
+                <ReactMarkdown>{overview}</ReactMarkdown>
+              </div>
+            ) : null}
           </div>
-        </div>
+        </>
       )}
 
       {/* Collapsed snippet */}

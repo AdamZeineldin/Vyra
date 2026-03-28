@@ -117,12 +117,15 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
         },
         prompt: "",
         iterationCount: state.iterationCount + 1,
-        activeCandidateId: null,
+        // Update project name if backend generated a title on first generation
+        project: state.project && data.project_name
+          ? { ...state.project, name: data.project_name }
+          : state.project,
       }));
 
       // In agent/hybrid mode: auto-execute + evaluate, then conditionally auto-select
       if (mode === "agent" || mode === "hybrid") {
-        await get().executeAll(project.runtime);
+        await get().executeAll(project.runtime ?? "node");
         await get().evaluateAll();
         const { evaluationSummary } = get();
         if (
