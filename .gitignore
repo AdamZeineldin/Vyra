@@ -8,6 +8,7 @@ coverage/
 .pnp.js
 npm-debug.log*
 yarn-debug.log*
+tsconfig.tsbuildinfo
 
 # ── Python ────────────────────────────────────────────────────────────────────
 __pycache__/
@@ -29,3 +30,4 @@ htmlcov/
 *.pem
 Thumbs.db
 
+versioncontrol.png

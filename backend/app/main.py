@@ -2,14 +2,14 @@
 import os
 from contextlib import asynccontextmanager
 
-from dotenv import load_dotenv
+from dotenv import load_dotenv, find_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.db import init_db
 from app.routers import execute, generate, models, projects, versions
 
-load_dotenv()
+load_dotenv(find_dotenv(usecwd=True))
 
 
 @asynccontextmanager

@@ -10,6 +10,7 @@ const BACKEND_URL =
 interface ModelSelectorProps {
   selected: ModelConfig[];
   onChange: (models: ModelConfig[]) => void;
+  autoSelectFirst?: boolean;
 }
 
 function getModelStyle(modelId: string): string {
@@ -24,15 +25,21 @@ function getModelStyle(modelId: string): string {
   return "bg-[var(--color-bg-secondary)] text-[var(--color-text-secondary)] border border-[var(--color-border-secondary)]";
 }
 
-export function ModelSelector({ selected, onChange }: ModelSelectorProps) {
+export function ModelSelector({ selected, onChange, autoSelectFirst }: ModelSelectorProps) {
   const [available, setAvailable] = useState<ModelConfig[]>([]);
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
     fetch(`${BACKEND_URL}/models/`)
       .then((r) => r.json())
-      .then(setAvailable)
+      .then((models: ModelConfig[]) => {
+        setAvailable(models);
+        if (autoSelectFirst && selected.length === 0 && models.length > 0) {
+          onChange([models[0]]);
+        }
+      })
       .catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const remove = (id: string) => onChange(selected.filter((m) => m.id !== id));
