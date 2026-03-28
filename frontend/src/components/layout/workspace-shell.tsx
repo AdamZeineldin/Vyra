@@ -40,6 +40,8 @@ export function WorkspaceShell({ project }: WorkspaceShellProps) {
     project: storeProject,
     candidates,
     selectedCandidateId,
+    activeCandidateId,
+    activeVersionId,
     evaluationSummary,
     selectCandidate,
     evaluateAll,
@@ -94,8 +96,11 @@ export function WorkspaceShell({ project }: WorkspaceShellProps) {
         <TopBar projectName={storeProject?.name ?? project.name} />
 
         <div className="flex gap-3 items-start">
-          {/* LEFT: primary workflow */}
-          <div className="flex-1 min-w-0 flex flex-col gap-3">
+          {/* LEFT: primary workflow — key triggers fade-in on version switch */}
+          <div
+            key={activeVersionId ?? "empty"}
+            className="flex-1 min-w-0 flex flex-col gap-3 vyra-fade-in"
+          >
             {/* Loading / reverting state */}
             {(isLoading || isReverting) && (
               <Panel padding="md">
@@ -118,7 +123,11 @@ export function WorkspaceShell({ project }: WorkspaceShellProps) {
                   <SectionHeader>
                     SELECTED OUTPUT — ITERATION {iterationCount}
                   </SectionHeader>
-                  <CandidateCard candidate={winner} isWinner />
+                  <CandidateCard
+                    candidate={winner}
+                    isWinner
+                    isActive={winner.id === activeCandidateId}
+                  />
                   {/* Winner action buttons */}
                   <div className="flex items-center gap-2 mt-2">
                     <Button variant="primary" size="sm" onClick={() => {}}>
@@ -162,6 +171,7 @@ export function WorkspaceShell({ project }: WorkspaceShellProps) {
                           key={c.id}
                           candidate={c}
                           isWinner={false}
+                          isActive={c.id === activeCandidateId}
                           showOverride
                           onSelect={() => setOverridingCandidate(c)}
                         />
@@ -226,6 +236,7 @@ export function WorkspaceShell({ project }: WorkspaceShellProps) {
                       key={c.id}
                       candidate={c}
                       isWinner={false}
+                      isActive={c.id === activeCandidateId}
                       onSelect={(id) => selectCandidate(id)}
                       highlightIfRecommended={
                         c.id === evaluationSummary?.bestCandidateId
