@@ -141,9 +141,15 @@ async def get_code_overview(files: dict) -> str:
     # Build file listing for the prompt
     file_sections = []
     for path, entry in files.items():
-        content = entry.get("content", "") if isinstance(entry, dict) else getattr(entry, "content", "")
+        content = (
+            entry.get("content", "") if isinstance(entry, dict)
+            else getattr(entry, "content", "")
+        )
         file_sections.append(f"### {path}\n```\n{content}\n```")
-    user_message = "Please review the following code files and explain what they do:\n\n" + "\n\n".join(file_sections)
+    user_message = (
+        "Please review the following code files and explain what they do:\n\n"
+        + "\n\n".join(file_sections)
+    )
 
     async with httpx.AsyncClient() as client:
         try:
@@ -169,8 +175,12 @@ async def get_code_overview(files: dict) -> str:
             response.raise_for_status()
             data = response.json()
             return data["choices"][0]["message"]["content"]
+        except httpx.HTTPStatusError as exc:
+            raise ValueError(
+                f"OpenRouter request failed: {exc.response.status_code}"
+            ) from exc
         except Exception as exc:
-            return f"Could not generate overview: {exc}"
+            raise ValueError(f"Could not generate overview: {exc}") from exc
 
 
 async def generate_candidates(

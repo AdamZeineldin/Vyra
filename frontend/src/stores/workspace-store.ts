@@ -115,7 +115,7 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
 
       // In agent/hybrid mode: auto-execute + evaluate, then conditionally auto-select
       if (mode === "agent" || mode === "hybrid") {
-        await get().executeAll(project.runtime);
+        await get().executeAll(project.runtime ?? "node");
         await get().evaluateAll();
         const { evaluationSummary } = get();
         if (

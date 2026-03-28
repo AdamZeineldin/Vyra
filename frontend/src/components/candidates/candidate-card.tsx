@@ -146,7 +146,7 @@ export function CandidateCard({
           </div>
 
           {/* AI Overview */}
-          <div className="mt-3 pt-3 border-t border-[var(--color-border)]">
+          <div className="mt-3 pt-3 border-t border-[var(--color-border-secondary)]">
             <div className="text-[10px] font-medium text-[var(--color-text-tertiary)] uppercase tracking-wide mb-1.5">
               AI Overview
             </div>

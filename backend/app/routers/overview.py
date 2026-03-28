@@ -19,5 +19,8 @@ async def candidate_overview(candidate_id: str):
     if not candidate.files:
         raise HTTPException(status_code=400, detail="Candidate has no files to review")
 
-    overview = await get_code_overview(candidate.files)
+    try:
+        overview = await get_code_overview(candidate.files)
+    except ValueError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
     return {"overview": overview}

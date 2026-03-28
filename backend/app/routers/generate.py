@@ -57,8 +57,8 @@ async def generate(body: GenerateRequest):
     is_first_generation = not body.parent_version_id
     if is_first_generation:
         title = await get_project_title(body.prompt)
-        project.name = title
-        await project.save()
+        await project.set({ProjectDoc.name: title})
+        project = await ProjectDoc.get(project.id)
 
     # Fan out to models
     results = await generate_candidates(models, body.prompt, current_files)
