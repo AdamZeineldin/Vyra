@@ -61,13 +61,10 @@ export function HtmlPreviewModal({ candidate, onClose }: HtmlPreviewModalProps) 
   }, [onClose]);
 
   const openInNewTab = useCallback(() => {
-    const blob = new Blob([bundled], { type: "text/html" });
-    const url = URL.createObjectURL(blob);
-    const win = window.open(url, "_blank");
-    // Revoke after the tab has loaded
-    if (win) {
-      win.addEventListener("load", () => URL.revokeObjectURL(url), { once: true });
-    }
+    // Use a data: URL instead of a blob: URL so the new tab gets a null origin
+    // and cannot make credentialed requests to the application.
+    const dataUrl = `data:text/html;charset=utf-8,${encodeURIComponent(bundled)}`;
+    window.open(dataUrl, "_blank", "noopener,noreferrer");
   }, [bundled]);
 
   return (
@@ -117,7 +114,7 @@ export function HtmlPreviewModal({ candidate, onClose }: HtmlPreviewModalProps) 
           srcDoc={bundled}
           title="HTML preview"
           className="flex-1 w-full bg-white"
-          sandbox="allow-scripts allow-forms allow-modals allow-popups"
+          sandbox="allow-scripts allow-forms allow-modals"
         />
       </div>
     </div>

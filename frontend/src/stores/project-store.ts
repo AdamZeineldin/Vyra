@@ -63,7 +63,8 @@ export const useProjectStore = create<ProjectStore>((set) => ({
 
   deleteProject: async (id, userId) => {
     try {
-      await fetch(`${BACKEND_URL}/projects/${id}?user_id=${encodeURIComponent(userId)}`, { method: "DELETE" });
+      const res = await fetch(`${BACKEND_URL}/projects/${id}?user_id=${encodeURIComponent(userId)}`, { method: "DELETE" });
+      if (!res.ok) throw new Error(`Failed to delete project: ${res.status}`);
       set((state) => ({
         projects: state.projects.filter((p) => p.id !== id),
       }));

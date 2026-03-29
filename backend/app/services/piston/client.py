@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import signal
 import shutil
 import tempfile
 import time
@@ -19,6 +20,12 @@ if TYPE_CHECKING:
     from app.services.piston.sandbox import ExecutionRequest
 
 FileMap = dict[str, FileEntry]
+
+# Maps the ExecutionRequest.runtime field to the Piston language name.
+RUNTIME_MAP: dict[str, str] = {
+    "python": "python",
+    "node": "javascript",
+}
 
 # Maps file extension → (piston language name, piston version)
 EXT_TO_RUNTIME: dict[str, tuple[str, str]] = {
@@ -208,7 +215,27 @@ async def _execute_with_subprocess(req: "ExecutionRequest") -> ExecutionResult:
 
     Supports Python and Node/JavaScript only.  Other languages return a
     descriptive error rather than silently failing.
+
+    This fallback is DISABLED by default and must be explicitly enabled via
+    the ``ALLOW_SUBPROCESS_FALLBACK=true`` environment variable.  When
+    disabled the function returns a safe error result without spawning any
+    process.
     """
+    allow_fallback = os.getenv("ALLOW_SUBPROCESS_FALLBACK", "").strip().lower() in (
+        "1", "true", "yes"
+    )
+    if not allow_fallback:
+        return ExecutionResult(
+            stdout="",
+            stderr=(
+                "Subprocess fallback is disabled. "
+                "Start the Piston Docker container or set ALLOW_SUBPROCESS_FALLBACK=true."
+            ),
+            exit_code=1,
+            duration_ms=0,
+            timed_out=False,
+        )
+
     code_files = {p: e for p, e in req.files.items() if _is_code_file(p)}
     if not code_files:
         return ExecutionResult(
@@ -240,12 +267,13 @@ async def _execute_with_subprocess(req: "ExecutionRequest") -> ExecutionResult:
     tmpdir = tempfile.mkdtemp(prefix="vyra_exec_")
     try:
         for path, entry in code_files.items():
-            dest = os.path.join(tmpdir, os.path.basename(path))
+            dest = os.path.join(tmpdir, path.lstrip("/"))
+            os.makedirs(os.path.dirname(dest), exist_ok=True)
             with open(dest, "w", encoding="utf-8") as fh:
                 fh.write(entry.content)
 
-        entry_name = os.path.basename(entry_path)
-        cmd = [*cmd_prefix, entry_name]
+        entry_rel = entry_path.lstrip("/")
+        cmd = [*cmd_prefix, entry_rel]
         start = time.monotonic()
 
         try:
@@ -255,6 +283,7 @@ async def _execute_with_subprocess(req: "ExecutionRequest") -> ExecutionResult:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=tmpdir,
+                start_new_session=True,
             )
             stdin_bytes = req.stdin.encode("utf-8") if req.stdin else b""
             stdout_bytes, stderr_bytes = await asyncio.wait_for(
@@ -272,8 +301,8 @@ async def _execute_with_subprocess(req: "ExecutionRequest") -> ExecutionResult:
 
         except asyncio.TimeoutError:
             try:
-                proc.kill()
-            except ProcessLookupError:
+                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            except (ProcessLookupError, OSError):
                 pass
             duration_ms = int((time.monotonic() - start) * 1000)
             return ExecutionResult(
