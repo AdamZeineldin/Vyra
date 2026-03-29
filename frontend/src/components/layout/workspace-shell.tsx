@@ -12,6 +12,7 @@ import { PromptInput } from "@/components/prompt/prompt-input";
 import { ModelSelector } from "@/components/prompt/model-selector";
 import { EvaluatorPanel } from "@/components/evaluator/evaluator-panel";
 import { TreeMinimap } from "@/components/version-tree/tree-minimap";
+import { GitHubModal } from "@/components/github/github-modal";
 import type { Candidate, ModelConfig, Project, WorkspaceMode } from "@/lib/types";
 
 const MODES: { id: WorkspaceMode; label: string; description: string }[] = [
@@ -22,31 +23,49 @@ const MODES: { id: WorkspaceMode; label: string; description: string }[] = [
 
 function ModeSelector() {
   const { mode, setMode } = useWorkspaceStore();
+  const [open, setOpen] = useState(false);
+  const active = MODES.find((m) => m.id === mode)!;
+
   return (
-    <div className="bg-[var(--color-bg-primary)] border border-[var(--color-border-tertiary)] rounded-panel p-2.5">
-      <div className="text-[9px] font-semibold tracking-[0.12em] uppercase text-[var(--color-text-tertiary)] mb-2">Mode</div>
-      <div className="flex flex-col gap-1">
-        {MODES.map((m) => {
-          const active = mode === m.id;
-          return (
-            <button
-              key={m.id}
-              onClick={() => setMode(m.id)}
-              className={[
-                "w-full text-left px-2.5 py-2 rounded-btn border transition-colors duration-fast",
-                active
-                  ? "border-[#6fcf3e] bg-[#6fcf3e12]"
-                  : "border-transparent hover:border-[var(--color-border-secondary)] hover:bg-[var(--color-bg-secondary)]",
-              ].join(" ")}
-            >
-              <div className={`text-[11px] font-semibold ${active ? "text-[#6fcf3e]" : "text-[var(--color-text-primary)]"}`}>
-                {m.label}
-              </div>
-              <div className="text-[10px] text-[var(--color-text-tertiary)] mt-0.5">{m.description}</div>
-            </button>
-          );
-        })}
-      </div>
+    <div className="bg-[var(--color-bg-primary)] border border-[var(--color-border-tertiary)] rounded-panel overflow-hidden">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="w-full flex items-center justify-between px-3 py-2.5 hover:bg-[var(--color-bg-secondary)] transition-colors duration-fast"
+      >
+        <div className="flex items-center gap-2">
+          <span className="text-[9px] font-semibold tracking-[0.1em] uppercase text-[var(--color-text-tertiary)]">Mode</span>
+          <span className="text-[11px] font-semibold text-[#6fcf3e]">{active.label}</span>
+        </div>
+        <svg
+          width="10" height="10" viewBox="0 0 10 10" fill="none"
+          className={`text-[var(--color-text-tertiary)] transition-transform duration-150 ${open ? "rotate-180" : ""}`}
+        >
+          <path d="M2 3.5L5 6.5L8 3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+        </svg>
+      </button>
+
+      {open && (
+        <div className="border-t border-[var(--color-border-tertiary)]">
+          {MODES.map((m) => {
+            const isActive = mode === m.id;
+            return (
+              <button
+                key={m.id}
+                onClick={() => { setMode(m.id); setOpen(false); }}
+                className={[
+                  "w-full text-left px-3 py-2.5 transition-colors duration-fast",
+                  isActive ? "bg-[#6fcf3e12]" : "hover:bg-[var(--color-bg-secondary)]",
+                ].join(" ")}
+              >
+                <div className={`text-[11px] font-semibold ${isActive ? "text-[#6fcf3e]" : "text-[var(--color-text-primary)]"}`}>
+                  {m.label}
+                </div>
+                <div className="text-[10px] text-[var(--color-text-tertiary)] mt-0.5">{m.description}</div>
+              </button>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -95,6 +114,13 @@ export function WorkspaceShell({ project }: WorkspaceShellProps) {
   const [overridingCandidate, setOverridingCandidate] =
     useState<Candidate | null>(null);
   const [toastError, setToastError] = useState<string | null>(null);
+  const [githubModalOpen, setGithubModalOpen] = useState(false);
+  const [hasRepo, setHasRepo] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return !!localStorage.getItem(`vyra_gh_repo_${project.id}`);
+  });
+
+  const handleRepoCreated = () => setHasRepo(true);
 
   // Surface store errors as toasts
   useEffect(() => {
@@ -125,10 +151,19 @@ export function WorkspaceShell({ project }: WorkspaceShellProps) {
     ? `NEXT PROMPT — ALL MODELS WILL BUILD FROM ${winner.modelLabel.toUpperCase()}'S OUTPUT`
     : "NEXT PROMPT";
 
+  const exportFiles = (winner ?? candidates[0])?.files ?? {};
+  const hasFiles = Object.keys(exportFiles).length > 0;
+  const githubModalMode = hasRepo ? "commit" : "create";
+
   return (
     <div className="min-h-screen bg-[var(--color-bg-tertiary)] p-4">
       <div className="max-w-[1080px] mx-auto flex flex-col gap-3">
-        <TopBar projectName={currentVersion?.prompt ?? ""} />
+        <TopBar
+          projectName={currentVersion?.prompt ?? ""}
+          hasFiles={hasFiles}
+          hasRepo={hasRepo}
+          onGitHubClick={() => setGithubModalOpen(true)}
+        />
 
         <div className="flex gap-3 items-start">
           {/* LEFT: primary workflow — key triggers fade-in on version switch */}
@@ -175,6 +210,11 @@ export function WorkspaceShell({ project }: WorkspaceShellProps) {
                     >
                       Override pick
                     </Button>
+                    {hasRepo && (
+                      <Button variant="ghost" size="sm" onClick={() => setGithubModalOpen(true)}>
+                        Commit to GitHub
+                      </Button>
+                    )}
                   </div>
                 </div>
 
@@ -321,6 +361,17 @@ export function WorkspaceShell({ project }: WorkspaceShellProps) {
           candidate={overridingCandidate}
           onConfirm={handleOverrideConfirm}
           onCancel={() => setOverridingCandidate(null)}
+        />
+      )}
+
+      {githubModalOpen && (
+        <GitHubModal
+          mode={githubModalMode}
+          files={exportFiles}
+          projectName={project.name}
+          projectId={project.id}
+          onRepoCreated={handleRepoCreated}
+          onClose={() => setGithubModalOpen(false)}
         />
       )}
 

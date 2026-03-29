@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import ReactMarkdown from "react-markdown";
-import { ChevronDown, ChevronUp, GitCommitHorizontal } from "lucide-react";
+import { ChevronDown, ChevronUp } from "lucide-react";
 import type { Candidate } from "@/lib/types";
 import { useWorkspaceStore } from "@/stores/workspace-store";
 import { Panel } from "@/components/ui/panel";
@@ -12,7 +12,6 @@ import { getModelAccentBorder } from "@/lib/model-colors";
 import { ModelChip } from "./model-chip";
 import { FileExplorer } from "./file-explorer";
 import { CodePreview } from "./code-preview";
-import { GitHubModal } from "@/components/github/github-modal";
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:8000";
 
@@ -48,7 +47,7 @@ export function CandidateCard({
   showOverride,
   highlightIfRecommended,
 }: CandidateCardProps) {
-  const { setLoadingOverview, project } = useWorkspaceStore();
+  const { setLoadingOverview } = useWorkspaceStore();
   const cardRef = useRef<HTMLDivElement>(null);
   const [selectedFile, setSelectedFile] = useState<string | null>(
     Object.keys(candidate.files)[0] ?? null
@@ -56,7 +55,6 @@ export function CandidateCard({
   const [expanded, setExpanded] = useState(isWinner ?? false);
   const [overview, setOverview] = useState<string | null>(null);
   const [isLoadingOverview, setIsLoadingOverview] = useState(false);
-  const [githubModalOpen, setGithubModalOpen] = useState(false);
   const lastFetchedId = useRef<string | null>(null);
 
   useEffect(() => {
@@ -139,13 +137,6 @@ export function CandidateCard({
               Select this
             </Button>
           )}
-          <button
-            onClick={() => setGithubModalOpen(true)}
-            title="Commit to GitHub"
-            className="text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] transition-colors duration-fast"
-          >
-            <GitCommitHorizontal size={13} />
-          </button>
           <button
             onClick={() => setExpanded(!expanded)}
             className="text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] transition-colors duration-fast"
@@ -236,15 +227,6 @@ export function CandidateCard({
     </Panel>
     </div>
 
-    {githubModalOpen && project && (
-      <GitHubModal
-        mode="commit"
-        files={candidate.files}
-        projectName={project.name}
-        projectId={project.id}
-        onClose={() => setGithubModalOpen(false)}
-      />
-    )}
     </>
   );
 }
