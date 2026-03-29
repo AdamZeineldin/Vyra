@@ -12,7 +12,6 @@ import { PromptInput } from "@/components/prompt/prompt-input";
 import { ModelSelector } from "@/components/prompt/model-selector";
 import { EvaluatorPanel } from "@/components/evaluator/evaluator-panel";
 import { TreeMinimap } from "@/components/version-tree/tree-minimap";
-import { IterationPanel } from "@/components/version-tree/iteration-panel";
 import type { Candidate, ModelConfig, Project } from "@/lib/types";
 
 interface SectionHeaderProps {
@@ -49,7 +48,6 @@ export function WorkspaceShell({ project }: WorkspaceShellProps) {
     isEvaluating,
     isExecuting,
     isReverting,
-    iterationCount,
     mode,
     error,
   } = useWorkspaceStore();
@@ -70,7 +68,7 @@ export function WorkspaceShell({ project }: WorkspaceShellProps) {
   const others = candidates.filter((c) => c.id !== selectedCandidateId);
   const unselectedCandidates = candidates.filter(() => !selectedCandidateId);
 
-  const isLoading = isGenerating || isEvaluating || isExecuting;
+  const isPostGenLoading = isEvaluating || isExecuting; // loading states after generation
   const hasResults = candidates.length > 0;
   const needsSelection = hasResults && !selectedCandidateId;
 
@@ -93,7 +91,10 @@ export function WorkspaceShell({ project }: WorkspaceShellProps) {
   return (
     <div className="min-h-screen bg-[var(--color-bg-tertiary)] p-4">
       <div className="max-w-[1080px] mx-auto flex flex-col gap-3">
-        <TopBar projectName={storeProject?.name ?? project.name} />
+        {/* Suppress the project name during first generation to avoid the
+            prompt-text → AI-name flicker. Once isGenerating clears, the AI
+            name is already committed and the user only ever sees that. */}
+        <TopBar projectName={isGenerating && !hasResults ? "" : (storeProject?.name ?? project.name)} />
 
         <div className="flex gap-3 items-start">
           {/* LEFT: primary workflow — key triggers fade-in on version switch */}
@@ -101,13 +102,11 @@ export function WorkspaceShell({ project }: WorkspaceShellProps) {
             key={activeVersionId ?? "empty"}
             className="flex-1 min-w-0 flex flex-col gap-3 vyra-fade-in"
           >
-            {/* Loading / reverting state */}
-            {(isLoading || isReverting) && (
+            {/* Loading state — only for post-gen phases and reverting, not generation itself */}
+            {(isPostGenLoading || isReverting) && (
               <Panel padding="md">
                 <div className="flex items-center gap-2.5 text-[12px] text-[var(--color-text-tertiary)]">
                   <span className="w-4 h-4 rounded-full border-2 border-primary-blue border-t-transparent animate-spin flex-shrink-0" />
-                  {isGenerating &&
-                    `Generating from ${selectedModels.length} models in parallel…`}
                   {isExecuting && "Running code in sandbox…"}
                   {isReverting && "Loading version…"}
                   {isEvaluating && "Evaluating candidates…"}
@@ -120,9 +119,7 @@ export function WorkspaceShell({ project }: WorkspaceShellProps) {
               <>
                 {/* Selected output */}
                 <div>
-                  <SectionHeader>
-                    SELECTED OUTPUT — ITERATION {iterationCount}
-                  </SectionHeader>
+                  <SectionHeader>SELECTED OUTPUT</SectionHeader>
                   <CandidateCard
                     candidate={winner}
                     isWinner
@@ -182,12 +179,12 @@ export function WorkspaceShell({ project }: WorkspaceShellProps) {
               </>
             )}
 
-            {/* PRE-SELECTION view */}
-            {needsSelection && !isLoading && (
+            {/* PRE-SELECTION view — shown during streaming and after */}
+            {needsSelection && !isPostGenLoading && (
               <div>
                 <SectionHeader
                   action={
-                    mode !== "agent" ? (
+                    !isGenerating && mode !== "agent" ? (
                       <Button
                         variant="ghost"
                         size="sm"
@@ -199,7 +196,7 @@ export function WorkspaceShell({ project }: WorkspaceShellProps) {
                     ) : undefined
                   }
                 >
-                  CANDIDATE OUTPUTS — PICK ONE TO CONTINUE
+                  {isGenerating ? "GENERATING…" : "CANDIDATE OUTPUTS — PICK ONE TO CONTINUE"}
                 </SectionHeader>
 
                 {evaluationSummary?.bestCandidateId && (
@@ -247,8 +244,8 @@ export function WorkspaceShell({ project }: WorkspaceShellProps) {
               </div>
             )}
 
-            {/* Empty state */}
-            {!isLoading && !hasResults && (
+            {/* Empty state — shown only before first generation starts */}
+            {!isGenerating && !isPostGenLoading && !hasResults && (
               <Panel padding="md">
                 <p className="text-[12px] text-[var(--color-text-tertiary)] text-center py-8">
                   Select models below and submit your first prompt to begin.
@@ -261,7 +258,9 @@ export function WorkspaceShell({ project }: WorkspaceShellProps) {
               {hasResults && <SectionHeader>{nextPromptLabel}</SectionHeader>}
               <PromptInput
                 modelIds={selectedModels.map((m) => m.id)}
-                currentIteration={iterationCount}
+                currentVersionLabel={
+                  winner ? `${winner.modelLabel} output` : undefined
+                }
                 modelSelector={
                   <ModelSelector
                     selected={selectedModels}
@@ -277,13 +276,6 @@ export function WorkspaceShell({ project }: WorkspaceShellProps) {
             <div>
               <SectionHeader>VERSION TREE</SectionHeader>
               <TreeMinimap />
-            </div>
-            <div>
-              <SectionHeader>ITERATIONS</SectionHeader>
-              <IterationPanel
-                current={iterationCount}
-                total={Math.max(iterationCount, 3)}
-              />
             </div>
           </div>
         </div>

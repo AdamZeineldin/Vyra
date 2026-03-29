@@ -10,14 +10,12 @@ import { Panel } from "@/components/ui/panel";
 interface PromptInputProps {
   modelIds: string[];
   currentVersionLabel?: string;
-  currentIteration?: number;
   modelSelector?: ReactNode;
 }
 
 export function PromptInput({
   modelIds,
   currentVersionLabel,
-  currentIteration = 0,
   modelSelector,
 }: PromptInputProps) {
   const { prompt, setPrompt, generate, isGenerating, currentVersion } =
@@ -34,7 +32,8 @@ export function PromptInput({
     generate(modelIds);
   };
 
-  const contextLabel = currentVersionLabel ?? (currentVersion ? `Iter ${currentIteration}` : "New project");
+  const contextLabel =
+    currentVersionLabel ?? (currentVersion ? "Current version" : "New project");
 
   return (
     <Panel padding="md">

@@ -45,7 +45,7 @@ export default function ProjectPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { setProject, setPrompt, generate } = useWorkspaceStore();
+  const { setProject, setPrompt, setMode, generate } = useWorkspaceStore();
   const { data: session, status } = useSession();
 
   const [project, setLocalProject] = useState<Project | null>(null);
@@ -87,6 +87,10 @@ export default function ProjectPage() {
 
     autoGenFired.current = true;
     const modelIds = modelParam ? modelParam.split(",").filter(Boolean) : [];
+    const modeParam = searchParams.get("mode");
+    if (modeParam === "agent" || modeParam === "hybrid" || modeParam === "user") {
+      setMode(modeParam);
+    }
 
     setPrompt(initialPrompt);
     // Clear URL params without re-render

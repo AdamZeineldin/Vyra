@@ -1,16 +1,25 @@
 """Generate candidates by fanning out to OpenRouter models."""
 from __future__ import annotations
 
+import asyncio
+import json
 import os
+import uuid
 from datetime import datetime
 
 from beanie import PydanticObjectId
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
 
 from app.db import CandidateDoc, ProjectDoc, VersionDoc
 from app.models.domain import FileEntry, GenerateRequest
-from app.services.openrouter.client import generate_candidates, get_project_title
+from app.services.openrouter.client import (
+    generate_candidates,
+    get_project_title,
+    stream_one_candidate,
+)
 from app.services.openrouter.models import AVAILABLE_MODELS, get_model_by_id
+from app.services.openrouter.prompt import build_system_prompt, build_user_message
 
 router = APIRouter(prefix="/generate", tags=["generate"])
 
@@ -77,7 +86,7 @@ async def generate(body: GenerateRequest):
         await doc.insert()
         candidate_docs.append(doc)
 
-    # Set root version if first iteration
+    # Set root version on the first generation
     if not project.root_version_id:
         project.root_version_id = str(version.id)
         await project.save()
@@ -102,3 +111,116 @@ async def generate(body: GenerateRequest):
             for c in candidate_docs
         ],
     }
+
+
+@router.post("/stream")
+async def generate_stream(body: GenerateRequest):
+    """SSE endpoint — emits events as each model streams its response."""
+    project = await ProjectDoc.get(PydanticObjectId(body.project_id))
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    models = [m for mid in body.model_ids if (m := get_model_by_id(mid))]
+    if not models:
+        raise HTTPException(status_code=400, detail="No valid model IDs provided")
+
+    current_files = None
+    parent_depth = 0
+    if body.parent_version_id:
+        parent = await VersionDoc.get(PydanticObjectId(body.parent_version_id))
+        if parent:
+            current_files = _file_map_from_doc(parent.files)
+            parent_depth = parent.depth
+
+    version = VersionDoc(
+        project_id=body.project_id,
+        parent_id=body.parent_version_id,
+        prompt=body.prompt,
+        depth=parent_depth + 1 if body.parent_version_id else 0,
+    )
+    await version.insert()
+
+    if not project.root_version_id:
+        project.root_version_id = str(version.id)
+        await project.save()
+
+    api_key = os.getenv("OPENROUTER_API_KEY", "")
+    system_prompt = build_system_prompt()
+    user_message = build_user_message(body.prompt, current_files)
+    is_first = not body.parent_version_id
+
+    queue: asyncio.Queue = asyncio.Queue()
+
+    async def producer() -> None:
+        async def stream_and_save(model) -> None:
+            stream_id = str(uuid.uuid4())
+            result = await stream_one_candidate(
+                api_key=api_key,
+                model=model,
+                stream_id=stream_id,
+                system_prompt=system_prompt,
+                user_message=user_message,
+                queue=queue,
+            )
+            doc = CandidateDoc(
+                version_id=str(version.id),
+                model_id=result.model_id,
+                model_label=result.model_label,
+                files=result.files,
+                raw_response=result.raw_response,
+                error=result.error,
+            )
+            await doc.insert()
+            await queue.put({
+                "type": "candidate_done",
+                "stream_id": stream_id,
+                "id": str(doc.id),
+                "version_id": str(version.id),
+                "model_id": result.model_id,
+                "model_label": result.model_label,
+                "files": result.files,
+                "raw_response": result.raw_response,
+                "error": result.error,
+                "execution": None,
+                "evaluation": None,
+                "selected": False,
+                "created_at": doc.created_at.isoformat(),
+            })
+
+        coros = [stream_and_save(m) for m in models]
+        if is_first:
+            coros.append(get_project_title(body.prompt))
+
+        results = await asyncio.gather(*coros, return_exceptions=True)
+
+        if is_first:
+            title = results[-1]
+            if isinstance(title, str):
+                await project.set({ProjectDoc.name: title})
+
+        refreshed = await ProjectDoc.get(project.id)
+        await queue.put({
+            "type": "done",
+            "version_id": str(version.id),
+            "project_name": refreshed.name if refreshed else project.name,
+        })
+
+    asyncio.create_task(producer())
+
+    async def event_stream():
+        yield f"data: {json.dumps({'type': 'version_created', 'version_id': str(version.id)})}\n\n"
+        while True:
+            event = await queue.get()
+            yield f"data: {json.dumps(event)}\n\n"
+            if event.get("type") == "done":
+                break
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )

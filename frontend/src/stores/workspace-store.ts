@@ -7,6 +7,18 @@ import { shouldAutoSelect } from "@/lib/mode-logic";
 const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:8000";
 
+function normalizeCandidate(raw: unknown): Candidate {
+  if (typeof raw !== "object" || raw === null) {
+    throw new Error("Invalid candidate data received from API");
+  }
+  const c = raw as Record<string, unknown>;
+  return {
+    ...c,
+    modelId: (c.modelId ?? c.model_id) as string,
+    modelLabel: (c.modelLabel ?? c.model_label) as string,
+  } as Candidate;
+}
+
 export interface EvaluationSummary {
   bestCandidateId: string | null;
   confidence: number;
@@ -28,7 +40,6 @@ interface WorkspaceStore {
   isExecuting: boolean;
   isReverting: boolean;
   isLoadingOverview: boolean;
-  iterationCount: number;
   prompt: string;
   error: string | null;
   versionHistory: Version[];
@@ -63,7 +74,6 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
   isExecuting: false,
   isReverting: false,
   isLoadingOverview: false,
-  iterationCount: 0,
   prompt: "",
   error: null,
   versionHistory: [],
@@ -80,52 +90,114 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
     const { project, currentVersion, prompt, mode } = get();
     if (!project || !prompt.trim()) return;
 
-    set({ isGenerating: true, error: null, candidates: [], evaluationSummary: null, selectedCandidateId: null });
+    const submittedPrompt = prompt;
+    set({ isGenerating: true, error: null, candidates: [], evaluationSummary: null, selectedCandidateId: null, prompt: "" });
 
     try {
-      const res = await fetch(`${BACKEND_URL}/generate/`, {
+      const res = await fetch(`${BACKEND_URL}/generate/stream`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          prompt,
+          prompt: submittedPrompt,
           parent_version_id: currentVersion?.id ?? null,
           model_ids: modelIds,
           project_id: project.id,
         }),
       });
 
-      if (!res.ok) {
+      if (!res.ok || !res.body) {
         const err = await res.json().catch(() => ({ detail: "Unknown error" }));
-        throw new Error(err.detail ?? "Generation failed");
+        throw new Error((err as { detail?: string }).detail ?? "Generation failed");
       }
 
-      const data = await res.json();
-      const newVersion = { id: data.version_id } as Version;
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let versionId: string | null = null;
 
-      // Normalize snake_case API response to camelCase frontend types
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const candidates = (data.candidates ?? []).map((c: any) => ({
-        ...c,
-        modelId: c.modelId ?? c.model_id,
-        modelLabel: c.modelLabel ?? c.model_label,
-      }));
+      outer: while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
 
-      set((state) => ({
-        candidates,
-        currentVersion: newVersion,
-        activeVersionId: data.version_id,
-        versionHistory: [...state.versionHistory, newVersion],
-        candidatesByVersionId: {
-          ...state.candidatesByVersionId,
-          [data.version_id]: candidates,
-        },
-        prompt: "",
-        iterationCount: state.iterationCount + 1,
-        // Update project name if backend generated a title on first generation
-        project: state.project && data.project_name
-          ? { ...state.project, name: data.project_name }
-          : state.project,
-      }));
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          const dataStr = line.slice(6).trim();
+          if (!dataStr) continue;
+
+          let event: Record<string, unknown>;
+          try { event = JSON.parse(dataStr); } catch { continue; }
+
+          if (event.type === "version_created") {
+            versionId = event.version_id as string;
+            const newVersion = {
+              id: versionId,
+              prompt: submittedPrompt,
+              parentId: currentVersion?.id ?? null,
+              projectId: project.id,
+            } as Version;
+            set((state) => ({
+              currentVersion: newVersion,
+              activeVersionId: versionId,
+              versionHistory: [...state.versionHistory, newVersion],
+            }));
+
+          } else if (event.type === "candidate_started") {
+            const placeholder: Candidate = {
+              id: event.stream_id as string,
+              versionId: versionId ?? "",
+              modelId: event.model_id as string,
+              modelLabel: event.model_label as string,
+              files: {},
+              rawResponse: "",
+              execution: null,
+              evaluation: null,
+              selected: false,
+              error: null,
+              createdAt: new Date().toISOString(),
+              streaming: true,
+            };
+            set((state) => ({ candidates: [...state.candidates, placeholder] }));
+
+          } else if (event.type === "candidate_chunk") {
+            set((state) => ({
+              candidates: state.candidates.map((c) =>
+                c.id === (event.stream_id as string)
+                  ? { ...c, rawResponse: c.rawResponse + (event.chunk as string) }
+                  : c
+              ),
+            }));
+
+          } else if (event.type === "candidate_done") {
+            const finalized = normalizeCandidate(event);
+            set((state) => ({
+              candidates: state.candidates.map((c) =>
+                c.id === (event.stream_id as string)
+                  ? { ...finalized, streaming: false }
+                  : c
+              ),
+            }));
+
+          } else if (event.type === "done") {
+            const projectName = event.project_name as string | undefined;
+            if (versionId) {
+              set((state) => ({
+                candidatesByVersionId: {
+                  ...state.candidatesByVersionId,
+                  [versionId!]: state.candidates,
+                },
+                project: state.project && projectName
+                  ? { ...state.project, name: projectName }
+                  : state.project,
+              }));
+            }
+            break outer;
+          }
+        }
+      }
 
       // In agent/hybrid mode: auto-execute + evaluate, then conditionally auto-select
       if (mode === "agent" || mode === "hybrid") {
@@ -273,12 +345,7 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
 
       // Find the selected candidate (winner) for this version
       const winner = candidates.find((c) => c.selected) ?? null;
-
-      // Determine iteration count: use the version's depth + 1 if available
-      // We derive it from versionHistory position so we don't need the full Version object
       const { versionHistory } = get();
-      const historyIndex = versionHistory.findIndex((v) => v.id === versionId);
-      const iterationCount = historyIndex >= 0 ? historyIndex + 1 : get().iterationCount;
 
       const revertedVersion =
         versionHistory.find((v) => v.id === versionId) ??
@@ -290,7 +357,6 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
         currentVersion: revertedVersion,
         candidates,
         selectedCandidateId: winner?.id ?? null,
-        iterationCount,
         evaluationSummary: null,
         activeCandidateId: null,
         candidatesByVersionId: {
