@@ -3,9 +3,7 @@
 import { useState, useEffect } from "react";
 import { Plus, X } from "lucide-react";
 import type { ModelConfig } from "@/lib/types";
-
-const BACKEND_URL =
-  process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:8000";
+import { BACKEND_URL } from "@/lib/config";
 
 interface ModelSelectorProps {
   selected: ModelConfig[];

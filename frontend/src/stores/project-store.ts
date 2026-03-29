@@ -2,9 +2,7 @@
 
 import { create } from "zustand";
 import type { Project } from "@/lib/types";
-
-const BACKEND_URL =
-  process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:8000";
+import { BACKEND_URL } from "@/lib/config";
 
 interface ProjectStore {
   projects: Project[];

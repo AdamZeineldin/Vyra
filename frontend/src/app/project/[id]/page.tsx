@@ -7,10 +7,8 @@ import { useSession } from "next-auth/react";
 import { useWorkspaceStore } from "@/stores/workspace-store";
 import { WorkspaceShell } from "@/components/layout/workspace-shell";
 import { getUserId } from "@/lib/user-id";
+import { BACKEND_URL } from "@/lib/config";
 import type { Project } from "@/lib/types";
-
-const BACKEND_URL =
-  process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:8000";
 
 function LoadingScreen() {
   return (
