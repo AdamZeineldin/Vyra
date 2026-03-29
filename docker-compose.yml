@@ -1,0 +1,13 @@
+services:
+  piston:
+    image: ghcr.io/engineer-man/piston
+    container_name: vyra-piston
+    privileged: true
+    ports:
+      - "2000:2000"
+    volumes:
+      - piston_data:/piston
+    restart: unless-stopped
+
+volumes:
+  piston_data:
