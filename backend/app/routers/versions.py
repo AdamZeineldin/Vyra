@@ -1,6 +1,10 @@
 """Version tree endpoints — selection and history."""
+import logging
+
 from beanie import PydanticObjectId
 from fastapi import APIRouter, BackgroundTasks, HTTPException
+
+logger = logging.getLogger(__name__)
 
 from app.db import CandidateDoc, ProjectDoc, VersionDoc
 from app.models.domain import SelectCandidateRequest
@@ -21,7 +25,7 @@ async def _generate_comparison_overview_bg(candidate_id: str, version_id: str) -
     try:
         siblings = await CandidateDoc.find(
             CandidateDoc.version_id == version_id,
-        ).to_list()
+        ).limit(20).to_list()
         sibling_data = [
             {"model_label": s.model_label, "files": s.files}
             for s in siblings
@@ -46,7 +50,7 @@ async def _generate_comparison_overview_bg(candidate_id: str, version_id: str) -
         )
         candidate.comparison_overview = overview
     except Exception:
-        pass
+        logger.exception("Comparison overview generation failed for candidate %s", candidate_id)
     finally:
         candidate.overview_generating = False
         await candidate.save()

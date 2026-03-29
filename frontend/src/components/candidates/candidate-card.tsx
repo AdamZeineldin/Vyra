@@ -79,6 +79,7 @@ export function CandidateCard({
   const [overviewStatus, setOverviewStatus] = useState<"not_started" | "generating" | "ready">("not_started");
   const [githubModalOpen, setGithubModalOpen] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const hasSeenGenerating = useRef(false);
   const [isRunning, setIsRunning] = useState(false);
   const [consoleResult, setConsoleResult] = useState<{
     stdout: string; stderr: string; exit_code: number; duration_ms: number; timed_out: boolean;
@@ -89,6 +90,7 @@ export function CandidateCard({
   // Poll for comparison overview — only for the selected (winner) card
   useEffect(() => {
     if (!isWinner || !expanded) return;
+    hasSeenGenerating.current = false;
 
     const fetchOverview = async () => {
       try {
@@ -96,12 +98,13 @@ export function CandidateCard({
         if (!res.ok) return;
         const data = await res.json() as { overview: string | null; status: string };
         setOverviewStatus(data.status as "not_started" | "generating" | "ready");
+        if (data.status === "generating") hasSeenGenerating.current = true;
         if (data.overview) {
           setOverview(data.overview);
-          if (pollRef.current) {
-            clearInterval(pollRef.current);
-            pollRef.current = null;
-          }
+          if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+        } else if (data.status === "not_started" && hasSeenGenerating.current) {
+          // generation ended without a result — stop polling
+          if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
         }
       } catch {
         // ignore fetch errors during polling

@@ -233,7 +233,7 @@ async def get_comparison_overview(
         + "\n\n---\n\n".join(sections)
     )
 
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
         try:
             response = await client.post(
                 f"{OPENROUTER_BASE_URL}/chat/completions",
