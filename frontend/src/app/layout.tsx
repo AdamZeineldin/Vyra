@@ -20,6 +20,9 @@ const geistMono = localFont({
 export const metadata: Metadata = {
   title: "Vyra",
   description: "Multi-model iterative code generation",
+  icons: {
+    icon: "/logo.png",
+  },
 };
 
 export default async function RootLayout({
