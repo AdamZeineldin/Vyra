@@ -14,6 +14,7 @@ interface ProjectStore {
   loadProjects: (userId: string) => Promise<void>;
   createProject: (name: string, userId: string) => Promise<Project | null>;
   deleteProject: (id: string, userId: string) => Promise<void>;
+  updateProjectName: (id: string, name: string) => void;
 }
 
 export const useProjectStore = create<ProjectStore>((set) => ({
@@ -50,6 +51,14 @@ export const useProjectStore = create<ProjectStore>((set) => ({
       set({ error: e instanceof Error ? e.message : "Create failed" });
       return null;
     }
+  },
+
+  updateProjectName: (id, name) => {
+    set((state) => ({
+      projects: state.projects.map((p) =>
+        p.id === id ? { ...p, name } : p
+      ),
+    }));
   },
 
   deleteProject: async (id, userId) => {

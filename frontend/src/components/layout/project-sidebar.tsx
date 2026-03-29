@@ -115,9 +115,9 @@ function ProfilePopup({
 export function ProjectSidebar() {
   const router = useRouter();
   const pathname = usePathname();
-  const { projects, isLoading, loadProjects, deleteProject } =
+  const { projects, isLoading, loadProjects, deleteProject, updateProjectName } =
     useProjectStore();
-  const activeProjectName = useWorkspaceStore((s) => s.project?.name);
+  const activeProject = useWorkspaceStore((s) => s.project);
   const { data: session, status } = useSession();
 
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
@@ -130,6 +130,13 @@ export function ProjectSidebar() {
     loadProjects(getUserId(session));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status]);
+
+  // Keep project list name in sync with LLM-generated names from workspace store
+  useEffect(() => {
+    if (activeProject?.id && activeProject.name) {
+      updateProjectName(activeProject.id, activeProject.name);
+    }
+  }, [activeProject?.id, activeProject?.name, updateProjectName]);
 
   useEffect(() => {
     if (!session) return;
@@ -217,7 +224,7 @@ export function ProjectSidebar() {
                 onClick={() => router.push(`/project/${p.id}`)}
               >
                 <span className="flex-1 text-[12px] truncate">
-                  {isActive && activeProjectName ? activeProjectName : p.name}
+                  {p.name}
                 </span>
 
                 {confirmDeleteId === p.id ? (
