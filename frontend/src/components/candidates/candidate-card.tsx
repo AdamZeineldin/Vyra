@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import ReactMarkdown from "react-markdown";
-import { ChevronDown, ChevronUp } from "lucide-react";
+import { ChevronDown, ChevronUp, Play, Loader2 } from "lucide-react";
 import type { Candidate } from "@/lib/types";
 import { Panel } from "@/components/ui/panel";
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,17 @@ import { getModelAccentBorder } from "@/lib/model-colors";
 import { ModelChip } from "./model-chip";
 import { FileExplorer } from "./file-explorer";
 import { CodePreview } from "./code-preview";
+import { ConsoleModal } from "./console-modal";
+import { StdinModal } from "./stdin-modal";
+import { useWorkspaceStore } from "@/stores/workspace-store";
+
+const STDIN_PATTERNS = ["input(", "Scanner(", "readline(", "gets ", "cin >>", "sys.stdin", "STDIN"];
+
+function needsStdin(candidate: Candidate): boolean {
+  return Object.values(candidate.files).some((f) =>
+    STDIN_PATTERNS.some((p) => f.content.includes(p))
+  );
+}
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:8000";
 
@@ -39,6 +50,11 @@ export function CandidateCard({
   const [overview, setOverview] = useState<string | null>(null);
   const [isLoadingOverview, setIsLoadingOverview] = useState(false);
   const lastFetchedId = useRef<string | null>(null);
+  const [isRunning, setIsRunning] = useState(false);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [consoleResult, setConsoleResult] = useState<any | null>(null);
+  const [showStdinModal, setShowStdinModal] = useState(false);
+  const runtime = useWorkspaceStore((s) => s.project?.runtime ?? "python");
 
   useEffect(() => {
     if (!expanded) return;
@@ -66,6 +82,33 @@ export function CandidateCard({
     : "";
 
   const accentBorder = getModelAccentBorder(candidate.modelId ?? "");
+
+  const handleRun = () => {
+    if (isRunning) return;
+    if (needsStdin(candidate)) {
+      setShowStdinModal(true);
+    } else {
+      runWithStdin("");
+    }
+  };
+
+  const runWithStdin = async (stdin: string) => {
+    setShowStdinModal(false);
+    setIsRunning(true);
+    try {
+      const res = await fetch(`${BACKEND_URL}/execute/candidate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ candidate_id: candidate.id, runtime, stdin }),
+      });
+      const data = await res.json();
+      setConsoleResult(data.execution);
+    } catch {
+      setConsoleResult({ stdout: "", stderr: "Failed to reach execution server.", exit_code: 1, duration_ms: 0, timed_out: false });
+    } finally {
+      setIsRunning(false);
+    }
+  };
 
   return (
     <div ref={cardRef}>
@@ -115,6 +158,15 @@ export function CandidateCard({
               Select this
             </Button>
           )}
+          <button
+            onClick={handleRun}
+            disabled={isRunning}
+            title="Run program"
+            className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded bg-green-900/40 border border-green-800/60 text-green-400 hover:bg-green-900/70 disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-fast"
+          >
+            {isRunning ? <Loader2 size={10} className="animate-spin" /> : <Play size={10} />}
+            {isRunning ? "Running…" : "Run"}
+          </button>
           <button
             onClick={() => setExpanded(!expanded)}
             className="text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] transition-colors duration-fast"
@@ -188,6 +240,23 @@ export function CandidateCard({
         />
       )}
     </Panel>
+
+      {showStdinModal && (
+        <StdinModal
+          modelLabel={candidate.modelLabel}
+          candidate={candidate}
+          onRun={runWithStdin}
+          onCancel={() => setShowStdinModal(false)}
+        />
+      )}
+
+      {consoleResult && (
+        <ConsoleModal
+          modelLabel={candidate.modelLabel}
+          result={consoleResult}
+          onClose={() => setConsoleResult(null)}
+        />
+      )}
     </div>
   );
 }
