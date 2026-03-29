@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useWorkspaceStore } from "@/stores/workspace-store";
+import { shouldAutoCollapse } from "@/lib/collapse-logic";
 import { TopBar } from "./top-bar";
 import {
   WorkspaceViewport,
@@ -50,10 +51,13 @@ export function WorkspaceShell({ project }: WorkspaceShellProps) {
     activeCandidateId,
     activeVersionId,
     evaluationSummary,
+    comparisonOverview,
+    isLoadingComparison,
     versionHistory,
     candidatesByVersionId,
     selectCandidate,
     evaluateAll,
+    fetchComparison,
     isGenerating,
     isEvaluating,
     isExecuting,
@@ -76,6 +80,7 @@ export function WorkspaceShell({ project }: WorkspaceShellProps) {
   const [shouldPulsePrompt, setShouldPulsePrompt] = useState(false);
   const promptWrapperRef = useRef<HTMLDivElement>(null);
   const viewportHandle = useRef<WorkspaceViewportHandle>(null);
+  const prevSelectedRef = useRef<string | null>(null);
 
   // Re-initialize model selection when the project changes
   useEffect(() => {
@@ -88,14 +93,19 @@ export function WorkspaceShell({ project }: WorkspaceShellProps) {
     if (error) setToastError(error);
   }, [error]);
 
-  // Phase 3: Reset collapse when new candidates arrive
+  // Phase 3: Reset collapse when new candidates arrive or version changes
   useEffect(() => {
     setCandidatesCollapsed(false);
+    prevSelectedRef.current = null;
   }, [candidates]);
 
-  // Phase 3: In agent mode, auto-collapse when the store auto-selects a candidate
+  // Phase 3: Auto-collapse on fresh selection in agent/hybrid mode.
+  // prevSelectedRef guards against auto-collapsing when navigating to
+  // a historical version that already has a winner.
   useEffect(() => {
-    if (mode === "agent" && selectedCandidateId) {
+    const wasNull = prevSelectedRef.current === null;
+    prevSelectedRef.current = selectedCandidateId;
+    if (wasNull && shouldAutoCollapse(mode, selectedCandidateId)) {
       setCandidatesCollapsed(true);
     }
   }, [mode, selectedCandidateId]);
@@ -145,9 +155,6 @@ export function WorkspaceShell({ project }: WorkspaceShellProps) {
 
   const winner = candidates.find((c) => c.id === selectedCandidateId);
   const others = candidates.filter((c) => c.id !== selectedCandidateId);
-  const unselectedCandidates = candidates.filter(
-    (c) => c.id !== selectedCandidateId,
-  );
 
   const isLoading = isGenerating || isEvaluating || isExecuting;
   const hasResults = candidates.length > 0;
@@ -160,6 +167,8 @@ export function WorkspaceShell({ project }: WorkspaceShellProps) {
 
   const handleRequestEvaluation = async () => {
     await evaluateAll();
+    // Fetch comparison in background after evaluation
+    fetchComparison().catch(() => {});
     if (mode === "agent" && evaluationSummary?.bestCandidateId) {
       await selectCandidate(evaluationSummary.bestCandidateId);
     }
@@ -169,14 +178,29 @@ export function WorkspaceShell({ project }: WorkspaceShellProps) {
     ? `NEXT PROMPT — ALL MODELS WILL BUILD FROM ${winner.modelLabel.toUpperCase()}'S OUTPUT`
     : "NEXT PROMPT";
 
+  // Phase 3: Clear pulse when collapse is toggled off
+  const pulseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const handleContinueWithThis = () => {
     setCandidatesCollapsed(true);
     setShouldPulsePrompt(true);
     if (promptWrapperRef.current && viewportHandle.current) {
       viewportHandle.current.scrollCurrentToElement(promptWrapperRef.current);
     }
-    setTimeout(() => setShouldPulsePrompt(false), 800);
+    if (pulseTimerRef.current) clearTimeout(pulseTimerRef.current);
+    pulseTimerRef.current = setTimeout(() => setShouldPulsePrompt(false), 800);
   };
+
+  // Clean up pulse if user expands before timer fires
+  useEffect(() => {
+    if (!candidatesCollapsed) {
+      setShouldPulsePrompt(false);
+      if (pulseTimerRef.current) {
+        clearTimeout(pulseTimerRef.current);
+        pulseTimerRef.current = null;
+      }
+    }
+  }, [candidatesCollapsed]);
 
   return (
     <div className="min-h-screen bg-[var(--color-bg-tertiary)] p-4">
@@ -195,16 +219,25 @@ export function WorkspaceShell({ project }: WorkspaceShellProps) {
           >
             {/* Loading / reverting state */}
             {(isLoading || isReverting) && (
-              <Panel padding="md">
-                <div className="flex items-center gap-2.5 text-[12px] text-[var(--color-text-tertiary)]">
-                  <span className="w-4 h-4 rounded-full border-2 border-primary-blue border-t-transparent animate-spin flex-shrink-0" />
-                  {isGenerating &&
-                    `Generating from ${selectedModels.length} models in parallel…`}
-                  {isExecuting && "Running code in sandbox…"}
-                  {isReverting && "Loading version…"}
-                  {isEvaluating && "Evaluating candidates…"}
-                </div>
-              </Panel>
+              <div className="vyra-fade-in">
+                <Panel padding="md">
+                  <div className="flex items-center gap-2.5 text-[12px] text-[var(--color-text-tertiary)]">
+                    <span className="w-4 h-4 rounded-full border-2 border-primary-blue border-t-transparent animate-spin flex-shrink-0" />
+                    {isGenerating &&
+                      `Generating from ${selectedModels.length} models in parallel…`}
+                    {isExecuting && "Running code in sandbox…"}
+                    {isReverting && "Loading version…"}
+                    {isEvaluating && "Evaluating candidates…"}
+                  </div>
+                </Panel>
+                {/* Shimmer skeleton for expected content */}
+                {isGenerating && (
+                  <div className="flex flex-col gap-2 mt-2">
+                    <div className="vyra-shimmer h-24 rounded-panel" />
+                    <div className="vyra-shimmer h-24 rounded-panel" />
+                  </div>
+                )}
+              </div>
             )}
 
             {/* Historical prompt */}
@@ -255,14 +288,13 @@ export function WorkspaceShell({ project }: WorkspaceShellProps) {
                 </div>
 
                 {evaluationSummary && (
-                  <>
-                    <SectionHeader>WHAT CHANGED — AI ANALYSIS</SectionHeader>
-                    <EvaluatorPanel
-                      summary={evaluationSummary}
-                      winner={winner}
-                      otherCandidates={others}
-                    />
-                  </>
+                  <EvaluatorPanel
+                    summary={evaluationSummary}
+                    winner={winner}
+                    otherCandidates={others}
+                    comparisonOverview={comparisonOverview}
+                    isLoadingComparison={isLoadingComparison}
+                  />
                 )}
 
                 {others.length > 0 && (
@@ -271,16 +303,17 @@ export function WorkspaceShell({ project }: WorkspaceShellProps) {
                       OTHER OUTPUTS — CLICK TO OVERRIDE
                     </SectionHeader>
                     <div className="flex flex-col gap-2">
-                      {others.map((c) => (
-                        <CandidateCard
-                          key={c.id}
-                          candidate={c}
-                          isWinner={false}
-                          isActive={c.id === activeCandidateId}
-                          showOverride
-                          onSelect={() => setOverridingCandidate(c)}
-                          forceCollapsed={candidatesCollapsed}
-                        />
+                      {others.map((c, i) => (
+                        <div key={c.id} className={`vyra-slide-up vyra-stagger-${Math.min(i + 1, 5)}`}>
+                          <CandidateCard
+                            candidate={c}
+                            isWinner={false}
+                            isActive={c.id === activeCandidateId}
+                            showOverride
+                            onSelect={() => setOverridingCandidate(c)}
+                            forceCollapsed={candidatesCollapsed}
+                          />
+                        </div>
                       ))}
                     </div>
                   </div>
@@ -319,10 +352,6 @@ export function WorkspaceShell({ project }: WorkspaceShellProps) {
                           )?.modelLabel
                         }
                       </span>
-                      <span className="ml-1.5 text-[10px] opacity-70">
-                        (confidence:{" "}
-                        {Math.round(evaluationSummary.confidence * 100)}%)
-                      </span>
                     </span>
                     <Button
                       variant="primary"
@@ -337,17 +366,18 @@ export function WorkspaceShell({ project }: WorkspaceShellProps) {
                 )}
 
                 <div className="flex flex-col gap-2">
-                  {others.map((c) => (
-                    <CandidateCard
-                      key={c.id}
-                      candidate={c}
-                      isWinner={false}
-                      isActive={c.id === activeCandidateId}
-                      onSelect={(id) => selectCandidate(id)}
-                      highlightIfRecommended={
-                        c.id === evaluationSummary?.bestCandidateId
-                      }
-                    />
+                  {others.map((c, i) => (
+                    <div key={c.id} className={`vyra-slide-up vyra-stagger-${Math.min(i + 1, 5)}`}>
+                      <CandidateCard
+                        candidate={c}
+                        isWinner={false}
+                        isActive={c.id === activeCandidateId}
+                        onSelect={(id) => selectCandidate(id)}
+                        highlightIfRecommended={
+                          c.id === evaluationSummary?.bestCandidateId
+                        }
+                      />
+                    </div>
                   ))}
                 </div>
               </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { X, Play } from "lucide-react";
 import type { Candidate } from "@/lib/types";
 
@@ -45,6 +45,12 @@ function extractPrompts(candidate: Candidate): string[] {
 
 export function StdinModal({ modelLabel, candidate, onRun, onCancel }: StdinModalProps) {
   const [stdin, setStdin] = useState("");
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onCancel(); };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onCancel]);
   const prompts = extractPrompts(candidate);
 
   return (
@@ -64,7 +70,7 @@ export function StdinModal({ modelLabel, candidate, onRun, onCancel }: StdinModa
               {modelLabel} — enter all inputs before running
             </p>
           </div>
-          <button onClick={onCancel} className="text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] transition-colors">
+          <button onClick={onCancel} aria-label="Close" className="text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] transition-colors">
             <X size={13} />
           </button>
         </div>

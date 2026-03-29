@@ -34,8 +34,8 @@ export function Toast({ message, variant = "error", onDismiss, durationMs = 5000
     <div
       className={[
         "flex items-start gap-2.5 px-3 py-2.5 rounded-panel border shadow-lg max-w-sm w-full",
-        "transition-all duration-300",
-        visible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-2",
+        "transition-all duration-smooth ease-smooth",
+        visible ? "opacity-100 translate-y-0 scale-100" : "opacity-0 translate-y-3 scale-95",
         isError
           ? "bg-[var(--color-bg-primary)] border-warning-border"
           : "bg-[var(--color-bg-primary)] border-[var(--color-border-primary)]",
