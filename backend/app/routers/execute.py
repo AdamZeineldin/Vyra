@@ -20,6 +20,7 @@ router = APIRouter(prefix="/execute", tags=["execute"])
 class ExecuteRequest(BaseModel):
     candidate_id: str
     runtime: str = "node"
+    stdin: str = ""
 
 
 class EvaluateAllRequest(BaseModel):
@@ -44,6 +45,7 @@ async def execute_candidate(body: ExecuteRequest):
         candidate_id=body.candidate_id,
         files=files,
         runtime=body.runtime,
+        stdin=body.stdin,
     )
     result = await execute_in_sandbox(req)
 

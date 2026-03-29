@@ -1,7 +1,6 @@
 """Piston API client — executes code via the Piston remote execution engine."""
 from __future__ import annotations
 
-import json
 import os
 import time
 from typing import TYPE_CHECKING
@@ -15,42 +14,78 @@ if TYPE_CHECKING:
 
 FileMap = dict[str, FileEntry]
 
-PISTON_BASE_URL = os.getenv("PISTON_BASE_URL", "https://emkc.org/api/v2/piston")
-
-RUNTIME_MAP: dict[str, str] = {
-    "node": "javascript",
-    "python": "python",
+# Maps file extension → (piston language name, piston version)
+EXT_TO_RUNTIME: dict[str, tuple[str, str]] = {
+    ".py":   ("python",     "3.10.0"),
+    ".js":   ("javascript", "18.15.0"),
+    ".ts":   ("typescript", "5.0.3"),
+    ".java": ("java",       "15.0.2"),
+    ".go":   ("go",         "1.16.2"),
+    ".rs":   ("rust",       "1.68.2"),
+    ".c":    ("c",          "*"),
+    ".cpp":  ("c++",        "*"),
+    ".rb":   ("ruby",       "*"),
+    ".sh":   ("bash",       "*"),
 }
 
-_DEFAULT_VERSION = "*"
+# Extensions that should never be sent to Piston as executable files
+NON_CODE_EXTS = {
+    ".md", ".txt", ".json", ".yaml", ".yml", ".toml", ".ini",
+    ".cfg", ".env", ".gitignore", ".lock", ".xml", ".html",
+    ".css", ".scss", ".svg", ".png", ".jpg", ".jpeg", ".gif",
+}
 
 
-def _detect_entry_filename(files: FileMap, runtime: str) -> str | None:
-    """Return the bare entry filename for the given runtime and file set."""
-    if not files:
-        return None
+def _is_code_file(path: str) -> bool:
+    ext = os.path.splitext(path)[1].lower()
+    return ext in EXT_TO_RUNTIME and ext not in NON_CODE_EXTS
 
-    if runtime == "node":
-        pkg = files.get("package.json")
-        if pkg:
-            try:
-                data = json.loads(pkg.content)
-                if data.get("scripts", {}).get("start"):
-                    return None  # npm start — Piston can't run npm; fall through
-            except (json.JSONDecodeError, AttributeError):
-                pass
-        for candidate in ("index.ts", "src/index.ts", "index.js", "src/index.js"):
-            if candidate in files:
-                return candidate
-        return None
 
-    if runtime == "python":
-        for candidate in ("main.py", "app.py", "src/main.py"):
-            if candidate in files:
-                return candidate
-        return None
+def _detect_language_and_entry(files: FileMap) -> tuple[str, str, str]:
+    """Return (piston_language, piston_version, entry_path) from file extensions."""
+    # Bucket paths by extension
+    by_ext: dict[str, list[str]] = {}
+    for path in files:
+        ext = os.path.splitext(path)[1].lower()
+        by_ext.setdefault(ext, []).append(path)
 
-    return None
+    # Priority order: check extensions in preference order
+    for ext in (".py", ".ts", ".js", ".java", ".go", ".rs", ".cpp", ".c", ".rb", ".sh"):
+        if ext not in by_ext:
+            continue
+        lang, version = EXT_TO_RUNTIME[ext]
+        paths = by_ext[ext]
+
+        if ext == ".py":
+            for name in ("main.py", "app.py"):
+                match = next((p for p in paths if os.path.basename(p) == name), None)
+                if match:
+                    return lang, version, match
+            return lang, version, paths[0]
+
+        if ext in (".ts", ".js"):
+            prefix = "index" + ext
+            for name in (prefix, "main" + ext):
+                match = next((p for p in paths if os.path.basename(p) == name), None)
+                if match:
+                    return lang, version, match
+            return lang, version, paths[0]
+
+        if ext == ".java":
+            # Prefer file that contains the main method
+            for path in paths:
+                if "public static void main" in files[path].content:
+                    return lang, version, path
+            return lang, version, paths[0]
+
+        # Default: first file of this extension
+        return lang, version, paths[0]
+
+    # Absolute fallback
+    first = next(iter(files))
+    ext = os.path.splitext(first)[1].lower()
+    lang, version = EXT_TO_RUNTIME.get(ext, ("javascript", "18.15.0"))
+    return lang, version, first
 
 
 async def execute_with_piston(req: "ExecutionRequest") -> ExecutionResult:
@@ -68,41 +103,60 @@ async def execute_with_piston(req: "ExecutionRequest") -> ExecutionResult:
             timed_out=False,
         )
 
-    language = RUNTIME_MAP.get(req.runtime, req.runtime)
-    entry_filename = _detect_entry_filename(req.files, req.runtime)
+    # Strip non-code files (READMEs, configs, etc.) — Piston can't run them
+    code_files = {path: entry for path, entry in req.files.items() if _is_code_file(path)}
 
-    # Entry file must be first so Piston runs it as the main file.
-    piston_files: list[dict[str, str]] = []
-    if entry_filename and entry_filename in req.files:
-        piston_files.append({"name": entry_filename, "content": req.files[entry_filename].content})
-    for path, entry in req.files.items():
-        if path != entry_filename:
-            piston_files.append({"name": path, "content": entry.content})
-
-    if not piston_files:
+    if not code_files:
         return ExecutionResult(
             stdout="",
-            stderr="Could not determine entry file for execution",
+            stderr="No executable code files found (only docs/config files present).",
             exit_code=1,
             duration_ms=0,
             timed_out=False,
         )
 
+    language, version, entry_path = _detect_language_and_entry(code_files)
+
+    # Piston doesn't support subdirectory paths — flatten all filenames to basenames.
+    # For TypeScript, Piston's runtime appends .ts itself, so strip only .ts extensions.
+    def _flat(path: str) -> str:
+        name = os.path.basename(path)
+        if language == "typescript" and name.endswith(".ts"):
+            name = name[:-3]
+        return name
+
+    flat_entry = _flat(entry_path)
+
+    # For TypeScript projects, only send .ts source files — Piston can't use configs/json
+    def _should_include(path: str) -> bool:
+        if language == "typescript":
+            return path.endswith(".ts")
+        return True
+
+    # Entry file must be first so Piston runs it as the main file.
+    piston_files: list[dict[str, str]] = [
+        {"name": flat_entry, "content": code_files[entry_path].content}
+    ]
+    for path, entry in code_files.items():
+        if path != entry_path and _should_include(path):
+            piston_files.append({"name": _flat(path), "content": entry.content})
+
     payload = {
         "language": language,
-        "version": _DEFAULT_VERSION,
+        "version": version,
         "files": piston_files,
-        "stdin": "",
+        "stdin": req.stdin,
         "args": [],
-        "run_timeout": req.timeout_seconds * 1000,
+        "run_timeout": min(req.timeout_seconds * 1000, 3000),
     }
 
+    piston_base_url = os.getenv("PISTON_BASE_URL", "http://localhost:2000/api/v2")
     timeout = httpx.Timeout(req.timeout_seconds + 5.0)
     start = time.monotonic()
 
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
-            response = await client.post(f"{PISTON_BASE_URL}/execute", json=payload)
+            response = await client.post(f"{piston_base_url}/execute", json=payload)
 
         duration_ms = int((time.monotonic() - start) * 1000)
 
@@ -118,8 +172,7 @@ async def execute_with_piston(req: "ExecutionRequest") -> ExecutionResult:
         data = response.json()
         run = data.get("run", {})
         raw_code = run.get("code")
-        signal = run.get("signal")
-        timed_out = signal == "SIGKILL"
+        timed_out = run.get("signal") == "SIGKILL"
         exit_code = int(raw_code) if raw_code is not None else 1
 
         return ExecutionResult(
