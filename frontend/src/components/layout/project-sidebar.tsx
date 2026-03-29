@@ -10,11 +10,17 @@ import {
   Settings,
   X,
   LogOut,
+  GitBranch,
 } from "lucide-react";
 import { useSession, signIn, signOut } from "next-auth/react";
 import { useProjectStore } from "@/stores/project-store";
 import { useWorkspaceStore } from "@/stores/workspace-store";
 import { getUserId } from "@/lib/user-id";
+
+interface GitHubStatus {
+  connected: boolean;
+  username?: string;
+}
 
 function SettingsModal({ onClose }: { onClose: () => void }) {
   return (
@@ -117,12 +123,30 @@ export function ProjectSidebar() {
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [githubStatus, setGithubStatus] = useState<GitHubStatus | null>(null);
 
   useEffect(() => {
     if (status === "loading") return;
     loadProjects(getUserId(session));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status]);
+
+  useEffect(() => {
+    if (!session) return;
+    fetch("/api/github/status")
+      .then((r) => r.json())
+      .then((d) => setGithubStatus(d as GitHubStatus))
+      .catch(() => setGithubStatus({ connected: false }));
+  }, [session]);
+
+  const handleGitHubConnect = () => {
+    window.location.href = `/api/github/connect?returnUrl=${encodeURIComponent(pathname)}`;
+  };
+
+  const handleGitHubDisconnect = async () => {
+    await fetch("/api/github/status", { method: "DELETE" });
+    setGithubStatus({ connected: false });
+  };
 
   const currentProjectId = pathname.startsWith("/project/")
     ? pathname.split("/project/")[1]
@@ -235,41 +259,73 @@ export function ProjectSidebar() {
         </div>
 
         {/* Profile / Settings footer */}
-        <div className="flex-shrink-0 border-t border-[var(--color-border-tertiary)] px-3 py-2.5 flex items-center gap-2">
-          <button
-            onClick={() =>
-              session
-                ? setProfileOpen(true)
-                : signIn("google", { callbackUrl: pathname })
-            }
-            className="flex items-center gap-2 flex-1 min-w-0 rounded-btn hover:bg-[var(--color-bg-secondary)] px-1.5 py-1 transition-colors duration-fast text-left"
-          >
-            {session?.user?.image ? (
-              <Image
-                src={session.user.image}
-                alt={session.user.name ?? "User"}
-                width={20}
-                height={20}
-                className="rounded-full flex-shrink-0"
+        <div className="flex-shrink-0 border-t border-[var(--color-border-tertiary)] px-3 py-2.5 space-y-1">
+          {/* GitHub connect row — shown when signed in */}
+          {session && (
+            <div className="flex items-center gap-1.5 px-1.5 py-1">
+              <GitBranch
+                size={13}
+                className={githubStatus?.connected ? "text-[#4ade80]" : "text-[var(--color-text-tertiary)]"}
               />
-            ) : (
-              <UserCircle
-                size={16}
-                className="flex-shrink-0 text-[var(--color-text-tertiary)]"
-              />
-            )}
-            <span className="text-[12px] text-[var(--color-text-secondary)] truncate">
-              {session?.user?.name ?? "Sign in"}
-            </span>
-          </button>
+              {githubStatus?.connected ? (
+                <>
+                  <span className="text-[11px] text-[var(--color-text-secondary)] flex-1 truncate">
+                    @{githubStatus.username}
+                  </span>
+                  <button
+                    onClick={handleGitHubDisconnect}
+                    className="text-[10px] text-[var(--color-text-tertiary)] hover:text-warning-text transition-colors"
+                  >
+                    Disconnect
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={handleGitHubConnect}
+                  className="text-[11px] text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] transition-colors"
+                >
+                  Connect GitHub
+                </button>
+              )}
+            </div>
+          )}
 
-          <button
-            onClick={() => setSettingsOpen(true)}
-            className="w-6 h-6 flex items-center justify-center rounded text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-secondary)] transition-colors duration-fast flex-shrink-0"
-            aria-label="Settings"
-          >
-            <Settings size={13} />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() =>
+                session
+                  ? setProfileOpen(true)
+                  : signIn("google", { callbackUrl: pathname })
+              }
+              className="flex items-center gap-2 flex-1 min-w-0 rounded-btn hover:bg-[var(--color-bg-secondary)] px-1.5 py-1 transition-colors duration-fast text-left"
+            >
+              {session?.user?.image ? (
+                <Image
+                  src={session.user.image}
+                  alt={session.user.name ?? "User"}
+                  width={20}
+                  height={20}
+                  className="rounded-full flex-shrink-0"
+                />
+              ) : (
+                <UserCircle
+                  size={16}
+                  className="flex-shrink-0 text-[var(--color-text-tertiary)]"
+                />
+              )}
+              <span className="text-[12px] text-[var(--color-text-secondary)] truncate">
+                {session?.user?.name ?? "Sign in"}
+              </span>
+            </button>
+
+            <button
+              onClick={() => setSettingsOpen(true)}
+              className="w-6 h-6 flex items-center justify-center rounded text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-secondary)] transition-colors duration-fast flex-shrink-0"
+              aria-label="Settings"
+            >
+              <Settings size={13} />
+            </button>
+          </div>
         </div>
       </aside>
 
