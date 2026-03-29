@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useRef } from "react";
 import ReactMarkdown from "react-markdown";
-import { ChevronDown, ChevronUp, Play, Loader2 } from "lucide-react";
+
+import { ChevronDown, ChevronUp, Play, Loader2, GitCommitHorizontal } from "lucide-react";
 import type { Candidate } from "@/lib/types";
 import { Panel } from "@/components/ui/panel";
 import { Button } from "@/components/ui/button";
@@ -140,24 +141,23 @@ export function CandidateCard({
         </div>
 
         <div className="flex items-center gap-1.5">
+          <button
+            title="Commit to GitHub"
+            className="text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] transition-colors duration-fast"
+          >
+            <GitCommitHorizontal size={13} />
+          </button>
           {showOverride && onSelect && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => onSelect(candidate.id)}
-            >
+            <Button variant="ghost" size="sm" onClick={() => onSelect(candidate.id)}>
               Select this instead
             </Button>
           )}
           {!isWinner && !showOverride && onSelect && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => onSelect(candidate.id)}
-            >
+            <Button variant="ghost" size="sm" onClick={() => onSelect(candidate.id)}>
               Select this
             </Button>
           )}
+          
           <button
             onClick={handleRun}
             disabled={isRunning}
@@ -167,6 +167,7 @@ export function CandidateCard({
             {isRunning ? <Loader2 size={10} className="animate-spin" /> : <Play size={10} />}
             {isRunning ? "Running…" : "Run"}
           </button>
+          
           <button
             onClick={() => setExpanded(!expanded)}
             className="text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] transition-colors duration-fast"
