@@ -69,9 +69,9 @@ export function CandidateCard({
   }, [isActive]);
 
   const fileCount = Object.keys(candidate.files).length;
-  const previewContent = selectedFile
-    ? candidate.files[selectedFile]?.content ?? ""
-    : "";
+  const selectedFileEntry = selectedFile ? candidate.files[selectedFile] : null;
+  const previewContent = selectedFileEntry?.content ?? "";
+  const previewLanguage = selectedFileEntry?.language;
 
   const accentBorder = getModelAccentBorder(candidate.modelId ?? "");
 
@@ -171,6 +171,7 @@ export function CandidateCard({
                 <CodePreview
                   content={previewContent}
                   filename={selectedFile}
+                  language={previewLanguage}
                   maxLines={12}
                 />
               )}
@@ -200,6 +201,7 @@ export function CandidateCard({
         <CodePreview
           content={previewContent}
           filename={selectedFile}
+          language={previewLanguage}
           maxLines={3}
         />
       )}
