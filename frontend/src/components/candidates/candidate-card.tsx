@@ -49,7 +49,7 @@ export function CandidateCard({
   highlightIfRecommended,
   forceCollapsed = false,
 }: CandidateCardProps) {
-  const { setLoadingOverview, project } = useWorkspaceStore();
+  const { project, candidates: allCandidates } = useWorkspaceStore();
   const cardRef = useRef<HTMLDivElement>(null);
   const [selectedFile, setSelectedFile] = useState<string | null>(
     Object.keys(candidate.files)[0] ?? null
@@ -58,32 +58,49 @@ export function CandidateCard({
   // When forceCollapsed=true, this local override lets the user expand just this card
   const [userExpandedOverride, setUserExpandedOverride] = useState(false);
   const [overview, setOverview] = useState<string | null>(null);
-  const [isLoadingOverview, setIsLoadingOverview] = useState(false);
+  const [overviewStatus, setOverviewStatus] = useState<"not_started" | "generating" | "ready">("not_started");
   const [githubModalOpen, setGithubModalOpen] = useState(false);
-  const lastFetchedId = useRef<string | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [isRunning, setIsRunning] = useState(false);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [consoleResult, setConsoleResult] = useState<any | null>(null);
   const [showStdinModal, setShowStdinModal] = useState(false);
   const runtime = useWorkspaceStore((s) => s.project?.runtime ?? "python");
 
+  // Poll for comparison overview — only for the selected (winner) card
   useEffect(() => {
-    if (!expanded) return;
-    if (lastFetchedId.current === candidate.id) return;
-    lastFetchedId.current = candidate.id;
-    setOverview(null);
-    setIsLoadingOverview(true);
-    setLoadingOverview(true);
-    fetch(`${BACKEND_URL}/overview/candidate/${candidate.id}`)
-      .then((res) => res.ok ? res.json() : Promise.reject())
-      .then((data) => setOverview(data.overview as string))
-      .catch(() => setOverview("Could not load AI overview."))
-      .finally(() => {
-        setIsLoadingOverview(false);
-        setLoadingOverview(false);
-      });
+    if (!isWinner || !expanded) return;
+
+    const fetchOverview = async () => {
+      try {
+        const res = await fetch(`${BACKEND_URL}/overview/candidate/${candidate.id}`);
+        if (!res.ok) return;
+        const data = await res.json() as { overview: string | null; status: string };
+        setOverviewStatus(data.status as "not_started" | "generating" | "ready");
+        if (data.overview) {
+          setOverview(data.overview);
+          if (pollRef.current) {
+            clearInterval(pollRef.current);
+            pollRef.current = null;
+          }
+        }
+      } catch {
+        // ignore fetch errors during polling
+      }
+    };
+
+    fetchOverview();
+    // Poll every 3s while generating
+    pollRef.current = setInterval(fetchOverview, 3000);
+
+    return () => {
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [expanded, candidate.id]);
+  }, [isWinner, expanded, candidate.id]);
 
   // Scroll into view when this card becomes active via tree navigation
   useEffect(() => {
@@ -248,21 +265,24 @@ export function CandidateCard({
             </div>
           </div>
 
-          {/* AI Overview */}
-          <div className="mt-3 pt-3 border-t border-[var(--color-border-secondary)]">
-            <div className="text-[10px] font-medium text-[var(--color-text-tertiary)] uppercase tracking-wide mb-1.5">
-              AI Overview
+          {/* Comparison Overview — winner only, and only when multiple models ran */}
+          {isWinner && allCandidates.length > 1 && (
+            <div className="mt-3 pt-3 border-t border-[var(--color-border-secondary)]">
+              <div className="text-[10px] font-medium text-[var(--color-text-tertiary)] uppercase tracking-wide mb-1.5">
+                Why this model?
+              </div>
+              {overviewStatus === "generating" || (overviewStatus === "not_started" && !overview) ? (
+                <div className="flex items-center gap-1.5 text-[11px] text-[var(--color-text-tertiary)]">
+                  <Loader2 size={10} className="animate-spin flex-shrink-0" />
+                  Analyzing differences…
+                </div>
+              ) : overview ? (
+                <div className="prose-overview text-[11px] text-[var(--color-text-secondary)] leading-relaxed [&_h2]:text-[11px] [&_h2]:font-semibold [&_h2]:text-[var(--color-text-primary)] [&_h2]:mt-2.5 [&_h2]:mb-1 [&_p]:mb-1.5 [&_ul]:list-disc [&_ul]:pl-4 [&_ul]:mb-1.5 [&_li]:mb-0.5">
+                  <ReactMarkdown>{overview}</ReactMarkdown>
+                </div>
+              ) : null}
             </div>
-            {isLoadingOverview ? (
-              <div className="text-[11px] text-[var(--color-text-tertiary)] animate-pulse">
-                Generating overview…
-              </div>
-            ) : overview ? (
-              <div className="prose-overview text-[11px] text-[var(--color-text-secondary)] leading-relaxed [&_h1]:text-[13px] [&_h1]:font-semibold [&_h1]:text-[var(--color-text-primary)] [&_h1]:mb-2 [&_h2]:text-[12px] [&_h2]:font-semibold [&_h2]:text-[var(--color-text-primary)] [&_h2]:mt-3 [&_h2]:mb-1 [&_h3]:text-[11px] [&_h3]:font-semibold [&_h3]:text-[var(--color-text-secondary)] [&_h3]:mt-2 [&_h3]:mb-1 [&_p]:mb-2 [&_ul]:list-disc [&_ul]:pl-4 [&_ul]:mb-2 [&_li]:mb-0.5">
-                <ReactMarkdown>{overview}</ReactMarkdown>
-              </div>
-            ) : null}
-          </div>
+          )}
         </>
       )}
 

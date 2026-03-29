@@ -49,6 +49,8 @@ class CandidateDoc(Document):
     evaluation: dict[str, Any] | None = None
     selected: bool = False
     error: str | None = None
+    comparison_overview: str | None = None
+    overview_generating: bool = False
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
     class Settings:
