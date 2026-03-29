@@ -101,12 +101,9 @@ export default function ProjectPage() {
     autoGenFired.current = false;
 
     const userId = getUserId(session);
-    fetch(
-      `${BACKEND_URL}/projects/${id}?user_id=${encodeURIComponent(userId)}`,
-      {
-        signal: controller.signal,
-      },
-    )
+    fetch(`${BACKEND_URL}/projects/${id}?user_id=${encodeURIComponent(userId)}`, {
+      signal: controller.signal,
+    })
       .then((r) => {
         if (!r.ok) throw new Error("Project not found");
         return r.json();

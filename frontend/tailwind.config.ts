@@ -70,6 +70,39 @@ const config: Config = {
       },
       transitionDuration: {
         fast: "120ms",
+        smooth: "280ms",
+        slow: "400ms",
+      },
+      transitionTimingFunction: {
+        spring: "cubic-bezier(0.34, 1.56, 0.64, 1)",
+        smooth: "cubic-bezier(0.22, 1, 0.36, 1)",
+        snap: "cubic-bezier(0.2, 0, 0, 1)",
+      },
+      keyframes: {
+        "vyra-slide-up": {
+          "0%": { opacity: "0", transform: "translateY(16px) scale(0.98)" },
+          "60%": { opacity: "1", transform: "translateY(-2px) scale(1.005)" },
+          "100%": { opacity: "1", transform: "translateY(0) scale(1)" },
+        },
+        "vyra-scale-in": {
+          "0%": { opacity: "0", transform: "scale(0.85)" },
+          "60%": { opacity: "1", transform: "scale(1.04)" },
+          "100%": { opacity: "1", transform: "scale(1)" },
+        },
+        "vyra-fill": {
+          from: { transform: "scaleX(0)" },
+          to: { transform: "scaleX(1)" },
+        },
+        "vyra-glow": {
+          "0%, 100%": { boxShadow: "0 0 0 0 rgba(59, 130, 246, 0)" },
+          "50%": { boxShadow: "0 0 12px 2px rgba(59, 130, 246, 0.15)" },
+        },
+      },
+      animation: {
+        "slide-up": "vyra-slide-up 400ms cubic-bezier(0.22, 1, 0.36, 1) both",
+        "scale-in": "vyra-scale-in 350ms cubic-bezier(0.34, 1.56, 0.64, 1) both",
+        fill: "vyra-fill 600ms cubic-bezier(0.22, 1, 0.36, 1) both",
+        glow: "vyra-glow 2s ease-in-out infinite",
       },
     },
   },
