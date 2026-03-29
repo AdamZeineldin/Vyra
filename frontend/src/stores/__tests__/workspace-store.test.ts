@@ -98,7 +98,6 @@ describe("resetWorkspace", () => {
       isEvaluating: true,
       isExecuting: true,
       isReverting: true,
-      iterationCount: 5,
       prompt: "some prompt",
       error: "some error",
       versionHistory: [makeVersion("v1")],
@@ -120,7 +119,6 @@ describe("resetWorkspace", () => {
     expect(state.isEvaluating).toBe(false);
     expect(state.isExecuting).toBe(false);
     expect(state.isReverting).toBe(false);
-    expect(state.iterationCount).toBe(0);
     expect(state.prompt).toBe("");
     expect(state.error).toBeNull();
     expect(state.versionHistory).toEqual([]);

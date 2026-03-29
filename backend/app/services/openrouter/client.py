@@ -3,9 +3,12 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 
 import httpx
+
+logger = logging.getLogger(__name__)
 from pydantic import BaseModel
 
 from app.models.domain import FileMap, ModelConfig
@@ -129,7 +132,8 @@ async def get_project_title(prompt: str) -> str:
             data = response.json()
             title = data["choices"][0]["message"]["content"].strip().strip('"').strip("'")
             return title or prompt[:60]
-        except Exception:
+        except Exception as exc:
+            logger.warning("Title generation failed: %s", exc)
             return prompt[:60]
 
 
@@ -182,6 +186,81 @@ async def get_code_overview(files: dict) -> str:
             ) from exc
         except Exception as exc:
             raise ValueError(f"Could not generate overview: {exc}") from exc
+
+
+COMPARISON_SYSTEM_PROMPT = (
+    "You are a senior code reviewer comparing multiple AI-generated solutions to the same prompt. "
+    "You are given the original prompt, each model's output with its evaluation scores, and execution results. "
+    "Write a concise comparative analysis in Markdown. "
+    "Do NOT explain what the code does — the user already knows. "
+    "Instead, compare the outputs: which is best and why, what each model did differently, "
+    "and what trade-offs exist. Reference specific scores when making claims. "
+    "Format: ## Winner, ## Key Differences, ## Trade-offs. "
+    "Keep it under 300 words. No preamble or greeting."
+)
+
+
+async def get_comparative_overview(
+    candidates_data: list[dict],
+    prompt: str,
+) -> str:
+    """Generate a comparative analysis of multiple candidate outputs.
+
+    Each entry in candidates_data should have:
+      model_label, total_score, scores (dict), reasoning, file_count, execution_summary
+    """
+    api_key = os.getenv("OPENROUTER_API_KEY", "")
+    if not api_key:
+        raise ValueError("OPENROUTER_API_KEY environment variable not set")
+
+    sections = [f"**Original prompt:** {prompt}\n"]
+    for i, c in enumerate(candidates_data, 1):
+        scores = c.get("scores", {})
+        exec_summary = c.get("execution_summary", "Not executed")
+        sections.append(
+            f"### Model {i}: {c['model_label']}\n"
+            f"- **Total score:** {c['total_score']:.1f}/10\n"
+            f"- **Correctness:** {scores.get('correctness', 0):.1f} | "
+            f"**Completeness:** {scores.get('completeness', 0):.1f} | "
+            f"**Efficiency:** {scores.get('efficiency', 0):.1f} | "
+            f"**Code quality:** {scores.get('code_quality', 0):.1f}\n"
+            f"- **Execution:** {exec_summary}\n"
+            f"- **Files:** {c.get('file_count', 0)} files\n"
+            f"- **Verdict:** {c.get('reasoning', 'N/A')}\n"
+        )
+
+    user_message = "Compare these AI-generated solutions:\n\n" + "\n".join(sections)
+
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.post(
+                f"{OPENROUTER_BASE_URL}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                    "HTTP-Referer": os.getenv("APP_URL", "http://localhost:3000"),
+                    "X-Title": "YHack Iterative Coder",
+                },
+                json={
+                    "model": OVERVIEW_MODEL,
+                    "messages": [
+                        {"role": "system", "content": COMPARISON_SYSTEM_PROMPT},
+                        {"role": "user", "content": user_message},
+                    ],
+                    "max_tokens": 1024,
+                    "temperature": 0.4,
+                },
+                timeout=REQUEST_TIMEOUT,
+            )
+            response.raise_for_status()
+            data = response.json()
+            return data["choices"][0]["message"]["content"]
+        except httpx.HTTPStatusError as exc:
+            raise ValueError(
+                f"OpenRouter request failed: {exc.response.status_code}"
+            ) from exc
+        except Exception as exc:
+            raise ValueError(f"Could not generate comparison: {exc}") from exc
 
 
 async def stream_one_candidate(

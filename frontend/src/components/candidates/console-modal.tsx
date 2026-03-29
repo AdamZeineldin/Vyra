@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import { X } from "lucide-react";
 
 interface ExecutionResult {
@@ -17,6 +18,12 @@ interface ConsoleModalProps {
 }
 
 export function ConsoleModal({ modelLabel, result, onClose }: ConsoleModalProps) {
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onClose]);
+
   const success = result.exit_code === 0 && !result.timed_out;
   const hasStdout = result.stdout.trim().length > 0;
   const hasStderr = result.stderr.trim().length > 0;
@@ -62,6 +69,7 @@ export function ConsoleModal({ modelLabel, result, onClose }: ConsoleModalProps)
             </span>
             <button
               onClick={onClose}
+              aria-label="Close console"
               className="text-[#555] hover:text-[#aaa] transition-colors"
             >
               <X size={13} />

@@ -4,23 +4,21 @@ import { create } from "zustand";
 import type { Candidate, Project, Version, WorkspaceMode } from "@/lib/types";
 import { shouldAutoSelect } from "@/lib/mode-logic";
 
-function normalizeCandidate(raw: unknown): Candidate {
-  if (typeof raw !== "object" || raw === null) {
-    throw new Error("Invalid candidate data received from API");
-  }
-  const c = raw as Record<string, unknown>;
-  return {
-    ...c,
-    modelId: (c.modelId ?? c.model_id) as string,
-    modelLabel: (c.modelLabel ?? c.model_label) as string,
-  } as Candidate;
-}
-
-const BACKEND_URL =
-  process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:8000";
+import { BACKEND_URL } from "@/lib/config";
 
 function str(a: unknown, b: unknown = undefined): string {
   return typeof a === "string" ? a : typeof b === "string" ? b : "";
+}
+
+function normalizeEvaluation(raw: unknown): Candidate["evaluation"] {
+  if (!raw || typeof raw !== "object") return null;
+  const e = raw as Record<string, unknown>;
+  return {
+    scores: (e.scores ?? {}) as NonNullable<Candidate["evaluation"]>["scores"],
+    totalScore: ((e.totalScore ?? e.total_score) as number) ?? 0,
+    confidence: (e.confidence as number) ?? 0,
+    reasoning: (e.reasoning as string) ?? "",
+  } as NonNullable<Candidate["evaluation"]>;
 }
 
 function normalizeCandidate(raw: unknown): Candidate {
@@ -36,7 +34,7 @@ function normalizeCandidate(raw: unknown): Candidate {
     files: (typeof c.files === "object" && c.files !== null) ? (c.files as Candidate["files"]) : {},
     rawResponse: str(c.rawResponse, c.raw_response),
     execution: (c.execution ?? null) as Candidate["execution"],
-    evaluation: (c.evaluation ?? null) as Candidate["evaluation"],
+    evaluation: normalizeEvaluation(c.evaluation),
     selected: typeof c.selected === "boolean" ? c.selected : false,
     error: typeof c.error === "string" ? c.error : null,
     createdAt: str(c.createdAt, c.created_at) || new Date().toISOString(),
@@ -73,12 +71,28 @@ export interface EvaluationSummary {
   >;
 }
 
+export interface CandidateRanking {
+  candidateId: string;
+  modelLabel: string;
+  totalScore: number;
+  scores: Record<string, number>;
+  rank: number;
+  reasoning: string;
+}
+
+export interface ComparisonOverview {
+  comparison: string;
+  rankings: CandidateRanking[];
+}
+
 interface WorkspaceStore {
   project: Project | null;
   currentVersion: Version | null;
   candidates: Candidate[];
   selectedCandidateId: string | null;
   evaluationSummary: EvaluationSummary | null;
+  comparisonOverview: ComparisonOverview | null;
+  isLoadingComparison: boolean;
   mode: WorkspaceMode;
   isGenerating: boolean;
   isEvaluating: boolean;
@@ -100,6 +114,7 @@ interface WorkspaceStore {
   generate: (modelIds: string[]) => Promise<void>;
   executeAll: (runtime: string) => Promise<void>;
   evaluateAll: () => Promise<void>;
+  fetchComparison: () => Promise<void>;
   selectCandidate: (candidateId: string, reason?: string) => Promise<void>;
   resetWorkspace: () => void;
   loadVersionTree: (projectId: string) => Promise<Version[]>;
@@ -115,6 +130,8 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
   candidates: [],
   selectedCandidateId: null,
   evaluationSummary: null,
+  comparisonOverview: null,
+  isLoadingComparison: false,
   mode: "user",
   isGenerating: false,
   isEvaluating: false,
@@ -139,12 +156,13 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
       candidates: [],
       selectedCandidateId: null,
       evaluationSummary: null,
+      comparisonOverview: null,
+      isLoadingComparison: false,
       isGenerating: false,
       isEvaluating: false,
       isExecuting: false,
       isReverting: false,
       isLoadingOverview: false,
-      iterationCount: 0,
       prompt: "",
       error: null,
       versionHistory: [],
@@ -212,7 +230,6 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
           createdAt: new Date().toISOString(),
           streaming: true,
         };
-
         set((state) => ({ candidates: [...state.candidates, placeholder] }));
       } else if (event.type === "candidate_chunk") {
         set((state) => ({
@@ -224,7 +241,6 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
         }));
       } else if (event.type === "candidate_done") {
         const finalized = normalizeCandidate(event);
-
         set((state) => ({
           candidates: state.candidates.map((c) =>
             c.id === (event.stream_id as string)
@@ -234,14 +250,12 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
         }));
       } else if (event.type === "project_name") {
         const name = event.name as string;
-
         set((state) => ({
           project: state.project ? { ...state.project, name } : null,
         }));
       } else if (event.type === "done") {
         const doneVersionId =
           (typeof event.version_id === "string" ? event.version_id : versionId) ?? null;
-
         if (doneVersionId) {
           set((state) => ({
             candidatesByVersionId: {
@@ -250,15 +264,17 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
             },
           }));
         }
-
         break;
       }
     }
-    // ...existing code...  
-      // In agent/hybrid mode: auto-execute + evaluate, then conditionally auto-select
+
+      // Always auto-execute + evaluate + compare so scores are available immediately
+      await get().executeAll(project.runtime ?? "node");
+      await get().evaluateAll();
+      get().fetchComparison().catch(() => {});
+
+      // In agent/hybrid mode: auto-select the winner
       if (mode === "agent" || mode === "hybrid") {
-        await get().executeAll(project.runtime ?? "node");
-        await get().evaluateAll();
         const { evaluationSummary } = get();
         if (
           evaluationSummary?.bestCandidateId &&
@@ -345,6 +361,39 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
     }
   },
 
+  fetchComparison: async () => {
+    const { currentVersion } = get();
+    if (!currentVersion) return;
+
+    set({ isLoadingComparison: true });
+    try {
+      const res = await fetch(`${BACKEND_URL}/overview/compare`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ version_id: currentVersion.id }),
+      });
+
+      if (!res.ok) return;
+      const data = await res.json();
+
+      set({
+        comparisonOverview: {
+          comparison: data.comparison,
+          rankings: (data.rankings ?? []).map((r: Record<string, unknown>) => ({
+            candidateId: r.candidate_id as string,
+            modelLabel: r.model_label as string,
+            totalScore: r.total_score as number,
+            scores: r.scores as Record<string, number>,
+            rank: r.rank as number,
+            reasoning: r.reasoning as string,
+          })),
+        },
+      });
+    } finally {
+      set({ isLoadingComparison: false });
+    }
+  },
+
   selectCandidate: async (candidateId, reason) => {
     const { project, currentVersion } = get();
     if (!project || !currentVersion) return;
@@ -377,16 +426,20 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
   },
 
   loadVersionTree: async (projectId) => {
-    const res = await fetch(`${BACKEND_URL}/versions/${projectId}/tree`);
-    if (!res.ok) return [];
-    const versions: Version[] = await res.json();
+    try {
+      const res = await fetch(`${BACKEND_URL}/versions/${encodeURIComponent(projectId)}/tree`);
+      if (!res.ok) return [];
+      const versions: Version[] = await res.json();
 
-    // Keep versionHistory in sync with the full tree (ordered oldest → newest)
-    const sorted = [...versions].sort(
-      (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-    );
-    set({ versionHistory: sorted });
-    return sorted;
+      const sorted = [...versions].sort(
+        (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+      );
+      set({ versionHistory: sorted });
+      return sorted;
+    } catch {
+      set({ error: "Failed to load version tree" });
+      return [];
+    }
   },
 
   revertToVersion: async (versionId) => {
@@ -397,7 +450,7 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
 
     try {
       const res = await fetch(
-        `${BACKEND_URL}/versions/${versionId}/candidates`
+        `${BACKEND_URL}/versions/${encodeURIComponent(versionId)}/candidates`
       );
 
       if (!res.ok) {
@@ -412,11 +465,39 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
 
       // Find the selected candidate (winner) for this version
       const winner = candidates.find((c) => c.selected) ?? null;
+
+      // Rebuild evaluationSummary from persisted candidate evaluation data
+      // so scores survive tab reloads without re-running evaluation
+      const evaluatedCandidates = candidates.filter((c) => c.evaluation);
+      let restoredSummary: EvaluationSummary | null = null;
+      if (evaluatedCandidates.length > 0) {
+        const evaluations: EvaluationSummary["evaluations"] = {};
+        let bestId: string | null = null;
+        let bestScore = -1;
+        for (const c of evaluatedCandidates) {
+          const ev = c.evaluation!;
+          evaluations[c.id] = {
+            total_score: ev.totalScore,
+            scores: ev.scores as unknown as Record<string, number>,
+            reasoning: ev.reasoning,
+          };
+          if (ev.totalScore > bestScore) {
+            bestScore = ev.totalScore;
+            bestId = c.id;
+          }
+        }
+        const allScores = evaluatedCandidates.map((c) => c.evaluation!.totalScore);
+        const sortedScores = [...allScores].sort((a, b) => b - a);
+        const gap = sortedScores.length > 1 ? sortedScores[0] - sortedScores[1] : 3;
+        const confidence = Math.min(gap / 3, 1);
+        restoredSummary = { bestCandidateId: bestId, confidence, evaluations };
+      }
+
       const { versionHistory } = get();
 
       const revertedVersion =
         versionHistory.find((v) => v.id === versionId) ??
-        ({ id: versionId } as Version);
+        ({ id: versionId, projectId: project?.id ?? "", parentId: null, prompt: "", selectedCandidateId: null, files: {}, mode: "user", depth: 0, createdAt: new Date().toISOString() } as Version);
 
       // Navigate to the target version without deleting future versions
       set((state) => ({
@@ -424,7 +505,8 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
         currentVersion: revertedVersion,
         candidates,
         selectedCandidateId: winner?.id ?? null,
-        evaluationSummary: null,
+        evaluationSummary: restoredSummary,
+        comparisonOverview: null,
         activeCandidateId: null,
         candidatesByVersionId: {
           ...state.candidatesByVersionId,

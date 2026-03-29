@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import ReactMarkdown from "react-markdown";
 import { ChevronDown, ChevronUp, Play, Loader2, GitCommitHorizontal } from "lucide-react";
 import type { Candidate } from "@/lib/types";
 import { useWorkspaceStore } from "@/stores/workspace-store";
@@ -12,11 +11,17 @@ import { getModelAccentBorder } from "@/lib/model-colors";
 import { ModelChip } from "./model-chip";
 import { FileExplorer } from "./file-explorer";
 import { CodePreview } from "./code-preview";
-
 import { ConsoleModal } from "./console-modal";
 import { StdinModal } from "./stdin-modal";
-        
 import { GitHubModal } from "@/components/github/github-modal";
+
+const SCORE_LABELS: Record<string, string> = {
+  correctness: "Correct",
+  completeness: "Complete",
+  efficiency: "Efficient",
+  code_quality: "Quality",
+  codeQuality: "Quality",
+};
 
 const STDIN_PATTERNS = ["input(", "Scanner(", "readline(", "gets ", "cin >>", "sys.stdin", "STDIN"];
 
@@ -26,7 +31,7 @@ function needsStdin(candidate: Candidate): boolean {
   );
 }
 
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:8000";
+import { BACKEND_URL } from "@/lib/config";
 
 function StreamingView({ content }: { content: string }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -50,8 +55,6 @@ interface CandidateCardProps {
   onSelect?: (id: string) => void;
   showOverride?: boolean;
   highlightIfRecommended?: boolean;
-  /** When true, this card is collapsed regardless of its internal expand state.
-   *  The user can override this per-card by clicking "View full output". */
   forceCollapsed?: boolean;
 }
 
@@ -70,14 +73,16 @@ export function CandidateCard({
     Object.keys(candidate.files)[0] ?? null
   );
   const [expanded, setExpanded] = useState(isWinner ?? false);
-  // When forceCollapsed=true, this local override lets the user expand just this card
   const [userExpandedOverride, setUserExpandedOverride] = useState(false);
   const [overview, setOverview] = useState<string | null>(null);
   const [isLoadingOverview, setIsLoadingOverview] = useState(false);
   const lastFetchedId = useRef<string | null>(null);
+  const [showScores, setShowScores] = useState(false);
+  const [githubModalOpen, setGithubModalOpen] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const [consoleResult, setConsoleResult] = useState<any | null>(null);
+  const [consoleResult, setConsoleResult] = useState<{
+    stdout: string; stderr: string; exit_code: number; duration_ms: number; timed_out: boolean;
+  } | null>(null);
   const [showStdinModal, setShowStdinModal] = useState(false);
   const runtime = useWorkspaceStore((s) => s.project?.runtime ?? "python");
 
@@ -109,12 +114,10 @@ export function CandidateCard({
   const selectedFileEntry = selectedFile ? candidate.files[selectedFile] : null;
   const previewContent = selectedFileEntry?.content ?? "";
   const previewLanguage = selectedFileEntry?.language;
-
   const accentBorder = getModelAccentBorder(candidate.modelId ?? "");
-
-  // The card shows its expanded content only when locally expanded AND either
-  // forceCollapsed is false or the user has explicitly clicked "View full output".
   const isVisiblyExpanded = expanded && (!forceCollapsed || userExpandedOverride);
+  const ev = candidate.evaluation;
+
   const handleRun = () => {
     if (isRunning) return;
     if (needsStdin(candidate)) {
@@ -153,29 +156,35 @@ export function CandidateCard({
         !isWinner && !highlightIfRecommended && !isActive ? "opacity-70 hover:opacity-100" : "",
         highlightIfRecommended && !isWinner ? "border-primary-blue-border border-2" : "",
         isActive && !isWinner ? "ring-1 ring-[var(--color-primary-blue)] ring-offset-1 ring-offset-[var(--color-bg-tertiary)]" : "",
-        "transition-all duration-200",
+        isWinner ? "animate-glow" : "",
+        "transition-all duration-smooth ease-smooth",
       ].join(" ")}
     >
-      {/* Header row */}
-      <div className="flex items-center justify-between mb-3">
+      {/* Header — model chip, score, actions */}
+      <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <ModelChip modelId={candidate.modelId} modelLabel={candidate.modelLabel} />
-          {isWinner && (
-            <Badge variant="winner" dot>
-              Selected
-            </Badge>
+          {isWinner && <Badge variant="winner" dot>Selected</Badge>}
+          {ev && (
+            <button
+              onClick={() => setShowScores((s) => !s)}
+              className={`text-[11px] font-semibold cursor-pointer hover:opacity-80 transition-opacity ${isWinner ? "text-winner-text" : "text-[var(--color-text-secondary)]"}`}
+              title="Toggle score breakdown"
+            >
+              {Math.round((ev.totalScore ?? 0) * 10) / 10}/10
+              <ChevronDown size={9} className={`inline ml-0.5 transition-transform duration-fast ${showScores ? "rotate-180" : ""}`} />
+            </button>
           )}
-          {candidate.evaluation && (
-            <span className="text-[10px] text-[var(--color-text-tertiary)]">
-              {Math.round(candidate.evaluation.totalScore * 10) / 10}/10
-            </span>
-          )}
+          <span className="text-[10px] text-[var(--color-text-tertiary)]">
+            {fileCount} file{fileCount !== 1 ? "s" : ""}
+          </span>
         </div>
 
         <div className="flex items-center gap-1.5">
           <button
             onClick={() => setGithubModalOpen(true)}
             title="Commit to GitHub"
+            aria-label="Commit to GitHub"
             className="text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] transition-colors duration-fast"
           >
             <GitCommitHorizontal size={13} />
@@ -191,18 +200,8 @@ export function CandidateCard({
             </Button>
           )}
           {forceCollapsed && !userExpandedOverride && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => {
-                setUserExpandedOverride(true);
-                setExpanded(true);
-              }}
-            >
-              View full output
-            </Button>
+            <Button variant="ghost" size="sm" onClick={() => { setUserExpandedOverride(true); setExpanded(true); }}>View full output</Button>
           )}
-          
           <button
             onClick={handleRun}
             disabled={isRunning}
@@ -212,7 +211,6 @@ export function CandidateCard({
             {isRunning ? <Loader2 size={10} className="animate-spin" /> : <Play size={10} />}
             {isRunning ? "Running…" : "Run"}
           </button>
-          
           <button
             data-testid="expand-toggle"
             onClick={() => setExpanded(!expanded)}
@@ -234,9 +232,36 @@ export function CandidateCard({
         </div>
       )}
 
+      {/* Score dropdown — toggled by clicking score */}
+      {!candidate.streaming && ev && showScores && (() => {
+        const entries = Object.entries(ev.scores) as [string, number][];
+        return (
+          <div className="mt-2 vyra-fade-in">
+            <div className="flex gap-3 text-[9px] text-[var(--color-text-tertiary)]">
+              {entries.map(([key, val]) => {
+                const v = val ?? 0;
+                return (
+                  <span key={key}>
+                    <span className={`font-semibold ${v >= 7.5 ? "text-winner-text" : v < 5 ? "text-warning-text" : "text-[var(--color-text-secondary)]"}`}>
+                      {v.toFixed(1)}
+                    </span>
+                    {" "}{SCORE_LABELS[key] ?? key}
+                  </span>
+                );
+              })}
+            </div>
+            {ev.reasoning && (
+              <p className="text-[10px] text-[var(--color-text-secondary)] mt-1.5 leading-snug">
+                {ev.reasoning}
+              </p>
+            )}
+          </div>
+        );
+      })()}
+
       {/* Error state */}
       {!candidate.streaming && candidate.error && (
-        <div className="text-[11px] text-warning-text bg-warning-bg rounded-btn px-2 py-1.5 mb-2">
+        <div className="text-[11px] text-warning-text bg-warning-bg rounded-btn px-2 py-1.5 mt-2">
           Error: {candidate.error}
         </div>
       )}
@@ -250,56 +275,37 @@ export function CandidateCard({
 
       {/* Expanded content */}
       {!candidate.streaming && isVisiblyExpanded && (
-        <>
-          <div className="flex gap-3 mt-2">
-            {/* File tree */}
-            <div className="w-40 flex-shrink-0">
-              <FileExplorer
-                files={candidate.files}
-                selectedPath={selectedFile ?? undefined}
-                onSelectFile={setSelectedFile}
+        <div className="flex gap-3 mt-3">
+          <div className="w-40 flex-shrink-0">
+            <FileExplorer
+              files={candidate.files}
+              selectedPath={selectedFile ?? undefined}
+              onSelectFile={setSelectedFile}
+            />
+          </div>
+          <div className="flex-1 min-w-0">
+            {selectedFile && (
+              <CodePreview
+                content={previewContent}
+                filename={selectedFile}
+                language={previewLanguage}
+                maxLines={12}
               />
-            </div>
-
-            {/* Code preview */}
-            <div className="flex-1 min-w-0">
-              {selectedFile && (
-                <CodePreview
-                  content={previewContent}
-                  filename={selectedFile}
-                  language={previewLanguage}
-                  maxLines={12}
-                />
-              )}
-            </div>
+            )}
           </div>
-
-          {/* AI Overview */}
-          <div className="mt-3 pt-3 border-t border-[var(--color-border-secondary)]">
-            <div className="text-[10px] font-medium text-[var(--color-text-tertiary)] uppercase tracking-wide mb-1.5">
-              AI Overview
-            </div>
-            {isLoadingOverview ? (
-              <div className="text-[11px] text-[var(--color-text-tertiary)] animate-pulse">
-                Generating overview…
-              </div>
-            ) : overview ? (
-              <div className="prose-overview text-[11px] text-[var(--color-text-secondary)] leading-relaxed [&_h1]:text-[13px] [&_h1]:font-semibold [&_h1]:text-[var(--color-text-primary)] [&_h1]:mb-2 [&_h2]:text-[12px] [&_h2]:font-semibold [&_h2]:text-[var(--color-text-primary)] [&_h2]:mt-3 [&_h2]:mb-1 [&_h3]:text-[11px] [&_h3]:font-semibold [&_h3]:text-[var(--color-text-secondary)] [&_h3]:mt-2 [&_h3]:mb-1 [&_p]:mb-2 [&_ul]:list-disc [&_ul]:pl-4 [&_ul]:mb-2 [&_li]:mb-0.5">
-                <ReactMarkdown>{overview}</ReactMarkdown>
-              </div>
-            ) : null}
-          </div>
-        </>
+        </div>
       )}
 
       {/* Collapsed snippet */}
       {!candidate.streaming && !isVisiblyExpanded && !candidate.error && selectedFile && (
-        <CodePreview
-          content={previewContent}
-          filename={selectedFile}
-          language={previewLanguage}
-          maxLines={3}
-        />
+        <div className="mt-2">
+          <CodePreview
+            content={previewContent}
+            filename={selectedFile}
+            language={previewLanguage}
+            maxLines={3}
+          />
+        </div>
       )}
     </Panel>
 

@@ -36,7 +36,7 @@ function CandidateRow({
   return (
     <button
       onClick={() => onNavigate(candidate.id)}
-      className="flex items-center gap-1 w-full text-left py-0.5 transition-all duration-150 cursor-pointer group"
+      className="flex items-center gap-1 w-full text-left py-0.5 transition-all duration-smooth ease-smooth cursor-pointer group"
     >
       {/* Tree connector */}
       <span className="font-mono text-[var(--color-border-secondary)] select-none w-3 shrink-0 opacity-60 text-[10px]">
@@ -47,7 +47,7 @@ function CandidateRow({
       <span
         className={[
           "inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[9px] font-medium",
-          "transition-all duration-150",
+          "transition-all duration-smooth ease-spring",
           pillStyle,
           !isWinner && !isActive ? "opacity-60 group-hover:opacity-90" : "",
         ].join(" ")}

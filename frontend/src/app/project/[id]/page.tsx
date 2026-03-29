@@ -45,7 +45,7 @@ export default function ProjectPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { setProject, setPrompt, generate, resetWorkspace, loadVersionTree, navigateToVersion } = useWorkspaceStore();
+  const { setProject, setPrompt, setMode, generate, resetWorkspace, loadVersionTree, navigateToVersion } = useWorkspaceStore();
   const { data: session, status } = useSession();
 
   const [project, setLocalProject] = useState<Project | null>(null);
@@ -74,8 +74,7 @@ export default function ProjectPage() {
     autoGenFired.current = false;
 
     const userId = getUserId(session);
-    fetch(`${BACKEND_URL}/projects/${id}`, {
-      headers: { "X-User-Id": userId },
+    fetch(`${BACKEND_URL}/projects/${id}?user_id=${encodeURIComponent(userId)}`, {
       signal: controller.signal,
     })
       .then((r) => {
