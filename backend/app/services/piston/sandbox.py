@@ -5,7 +5,7 @@ import json
 import re
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.models.domain import ExecutionResult, FileEntry
 from app.services.piston.client import execute_with_piston
@@ -17,8 +17,8 @@ class ExecutionRequest(BaseModel):
     candidate_id: str
     files: FileMap
     runtime: Literal["node", "python"]
-    timeout_seconds: int = 30
-    stdin: str = ""
+    timeout_seconds: int = Field(default=30, ge=1, le=60)
+    stdin: str = Field(default="", max_length=4096)
 
 
 def detect_entrypoint(files: FileMap, runtime: str) -> str:

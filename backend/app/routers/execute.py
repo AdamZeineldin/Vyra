@@ -1,7 +1,9 @@
 """Execute candidate code in Docker sandbox + evaluate."""
+from typing import Literal
+
 from beanie import PydanticObjectId
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.db import CandidateDoc
 from app.models.domain import FileEntry
@@ -19,14 +21,14 @@ router = APIRouter(prefix="/execute", tags=["execute"])
 
 class ExecuteRequest(BaseModel):
     candidate_id: str
-    runtime: str = "node"
-    stdin: str = ""
+    runtime: Literal["node", "python"] = "node"
+    stdin: str = Field(default="", max_length=4096)
 
 
 class EvaluateAllRequest(BaseModel):
     version_id: str
-    prompt: str
-    runtime: str = "node"
+    prompt: str = Field(..., max_length=8000)
+    runtime: Literal["node", "python"] = "node"
     prior_files: dict = {}
 
 
@@ -69,7 +71,7 @@ async def evaluate_all(body: EvaluateAllRequest):
     from app.db import VersionDoc
     candidates = await CandidateDoc.find(
         CandidateDoc.version_id == body.version_id
-    ).to_list()
+    ).limit(50).to_list()
 
     if not candidates:
         raise HTTPException(status_code=404, detail="No candidates found for version")

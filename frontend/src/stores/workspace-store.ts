@@ -28,8 +28,7 @@ function normalizeCandidate(raw: unknown): Candidate {
   } as Candidate;
 }
 
-const BACKEND_URL =
-  process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:8000";
+import { BACKEND_URL } from "@/lib/config";
 
 export interface EvaluationSummary {
   bestCandidateId: string | null;
@@ -201,7 +200,7 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
       // Always auto-execute + evaluate + compare so scores are available immediately
       await get().executeAll(project.runtime ?? "node");
       await get().evaluateAll();
-      get().fetchComparison();
+      get().fetchComparison().catch(() => {});
 
       // In agent/hybrid mode: auto-select the winner
       if (mode === "agent" || mode === "hybrid") {
@@ -356,16 +355,20 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
   },
 
   loadVersionTree: async (projectId) => {
-    const res = await fetch(`${BACKEND_URL}/versions/${projectId}/tree`);
-    if (!res.ok) return [];
-    const versions: Version[] = await res.json();
+    try {
+      const res = await fetch(`${BACKEND_URL}/versions/${encodeURIComponent(projectId)}/tree`);
+      if (!res.ok) return [];
+      const versions: Version[] = await res.json();
 
-    // Keep versionHistory in sync with the full tree (ordered oldest → newest)
-    const sorted = [...versions].sort(
-      (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-    );
-    set({ versionHistory: sorted });
-    return sorted;
+      const sorted = [...versions].sort(
+        (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+      );
+      set({ versionHistory: sorted });
+      return sorted;
+    } catch {
+      set({ error: "Failed to load version tree" });
+      return [];
+    }
   },
 
   revertToVersion: async (versionId) => {
@@ -376,7 +379,7 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
 
     try {
       const res = await fetch(
-        `${BACKEND_URL}/versions/${versionId}/candidates`
+        `${BACKEND_URL}/versions/${encodeURIComponent(versionId)}/candidates`
       );
 
       if (!res.ok) {
@@ -423,7 +426,7 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
 
       const revertedVersion =
         versionHistory.find((v) => v.id === versionId) ??
-        ({ id: versionId } as Version);
+        ({ id: versionId, projectId: project?.id ?? "", parentId: null, prompt: "", selectedCandidateId: null, files: {}, mode: "user", depth: 0, createdAt: new Date().toISOString() } as Version);
 
       // Navigate to the target version without deleting future versions
       set((state) => ({

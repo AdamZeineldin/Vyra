@@ -168,7 +168,7 @@ export function WorkspaceShell({ project }: WorkspaceShellProps) {
   const handleRequestEvaluation = async () => {
     await evaluateAll();
     // Fetch comparison in background after evaluation
-    fetchComparison();
+    fetchComparison().catch(() => {});
     if (mode === "agent" && evaluationSummary?.bestCandidateId) {
       await selectCandidate(evaluationSummary.bestCandidateId);
     }

@@ -31,7 +31,7 @@ function needsStdin(candidate: Candidate): boolean {
   );
 }
 
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:8000";
+import { BACKEND_URL } from "@/lib/config";
 
 interface CandidateCardProps {
   candidate: Candidate;
@@ -62,8 +62,9 @@ export function CandidateCard({
   const [showScores, setShowScores] = useState(false);
   const [githubModalOpen, setGithubModalOpen] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const [consoleResult, setConsoleResult] = useState<any | null>(null);
+  const [consoleResult, setConsoleResult] = useState<{
+    stdout: string; stderr: string; exit_code: number; duration_ms: number; timed_out: boolean;
+  } | null>(null);
   const [showStdinModal, setShowStdinModal] = useState(false);
   const runtime = useWorkspaceStore((s) => s.project?.runtime ?? "python");
 
@@ -147,6 +148,7 @@ export function CandidateCard({
           <button
             onClick={() => setGithubModalOpen(true)}
             title="Commit to GitHub"
+            aria-label="Commit to GitHub"
             className="text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] transition-colors duration-fast"
           >
             <GitCommitHorizontal size={13} />

@@ -53,7 +53,7 @@ export function EvaluatorPanel({ summary, winner, otherCandidates, comparisonOve
           )}
           {comparisonOverview?.comparison && (
             <div className="prose-overview text-[11px] text-[var(--color-text-secondary)] leading-relaxed [&_h2]:text-[11px] [&_h2]:font-semibold [&_h2]:text-[var(--color-text-primary)] [&_h2]:mt-2 [&_h2]:mb-1 [&_h3]:text-[11px] [&_h3]:font-medium [&_h3]:text-[var(--color-text-secondary)] [&_h3]:mt-1.5 [&_h3]:mb-0.5 [&_p]:mb-1.5 [&_ul]:list-disc [&_ul]:pl-4 [&_ul]:mb-1.5 [&_li]:mb-0.5 [&_strong]:text-[var(--color-text-primary)]">
-              <ReactMarkdown>{comparisonOverview.comparison}</ReactMarkdown>
+              <ReactMarkdown allowedElements={["p", "h1", "h2", "h3", "ul", "ol", "li", "strong", "em", "code", "br"]}>{comparisonOverview.comparison}</ReactMarkdown>
             </div>
           )}
         </div>

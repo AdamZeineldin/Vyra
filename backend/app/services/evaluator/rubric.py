@@ -2,10 +2,13 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from dataclasses import dataclass
 
 import httpx
+
+logger = logging.getLogger(__name__)
 
 from app.models.domain import Evaluation, FileEntry, RubricScores
 from app.services.openrouter.diff import diff_file_maps
@@ -142,7 +145,8 @@ async def llm_score_candidates(
                 )
             return results
 
-    except Exception:
+    except Exception as exc:
+        logger.error("LLM judge failed: %s", exc, exc_info=True)
         return {}
 
 

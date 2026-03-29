@@ -1,9 +1,13 @@
 """Overview endpoints — per-candidate summary + cross-candidate comparison."""
 from __future__ import annotations
 
+import logging
+
 from beanie import PydanticObjectId
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+
+logger = logging.getLogger(__name__)
 
 from app.db import CandidateDoc
 from app.services.openrouter.client import get_code_overview, get_comparative_overview
@@ -23,7 +27,8 @@ async def candidate_overview(candidate_id: str):
     try:
         overview = await get_code_overview(candidate.files)
     except ValueError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        logger.error("Overview generation failed: %s", exc)
+        raise HTTPException(status_code=502, detail="Code overview service unavailable") from exc
     return {"overview": overview}
 
 
@@ -45,7 +50,7 @@ async def compare_candidates(body: CompareRequest):
     """Generate a comparative AI analysis across all candidates in a version."""
     candidates = await CandidateDoc.find(
         CandidateDoc.version_id == body.version_id
-    ).to_list()
+    ).limit(50).to_list()
 
     if not candidates:
         raise HTTPException(status_code=404, detail="No candidates found")
@@ -92,8 +97,9 @@ async def compare_candidates(body: CompareRequest):
     # Generate comparative overview
     try:
         comparison_text = await get_comparative_overview(candidates_data, prompt)
-    except ValueError:
-        comparison_text = ""
+    except ValueError as exc:
+        logger.error("Comparative overview failed: %s", exc)
+        comparison_text = "Comparison unavailable — evaluation scores are shown above."
 
     # Build rankings
     rankings = [

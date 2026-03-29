@@ -2,9 +2,12 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 
 import httpx
+
+logger = logging.getLogger(__name__)
 from pydantic import BaseModel
 
 from app.models.domain import FileMap, ModelConfig
@@ -128,7 +131,8 @@ async def get_project_title(prompt: str) -> str:
             data = response.json()
             title = data["choices"][0]["message"]["content"].strip().strip('"').strip("'")
             return title or prompt[:60]
-        except Exception:
+        except Exception as exc:
+            logger.warning("Title generation failed: %s", exc)
             return prompt[:60]
 
 
