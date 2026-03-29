@@ -94,7 +94,6 @@ interface WorkspaceShellProps {
 export function WorkspaceShell({ project }: WorkspaceShellProps) {
   const store = useWorkspaceStore();
   const {
-    project: storeProject,
     currentVersion,
     candidates,
     selectedCandidateId,

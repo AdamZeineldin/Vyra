@@ -16,7 +16,7 @@ interface EvaluatorPanelProps {
   isLoadingComparison?: boolean;
 }
 
-export function EvaluatorPanel({ summary, winner, otherCandidates, comparisonOverview, isLoadingComparison }: EvaluatorPanelProps) {
+export function EvaluatorPanel({ summary, winner, comparisonOverview, isLoadingComparison }: EvaluatorPanelProps) {
   const [showDetails, setShowDetails] = useState(false);
 
   const winnerEval = summary.evaluations[winner.id];
