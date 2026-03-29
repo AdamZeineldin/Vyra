@@ -2,7 +2,7 @@
 from datetime import datetime
 
 from beanie import PydanticObjectId
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 
 from app.db import ProjectDoc
 from app.models.domain import CreateProjectRequest, ModelConfig
@@ -26,14 +26,15 @@ def _doc_to_dict(doc: ProjectDoc) -> dict:
 
 
 @router.get("/")
-async def list_projects():
-    docs = await ProjectDoc.find_all().to_list()
+async def list_projects(user_id: str = Query(...)):
+    docs = await ProjectDoc.find(ProjectDoc.user_id == user_id).to_list()
     return [_doc_to_dict(d) for d in docs]
 
 
 @router.post("/", status_code=201)
 async def create_project(body: CreateProjectRequest):
     doc = ProjectDoc(
+        user_id=body.user_id,
         name=body.name,
         description=body.description,
         runtime=body.runtime,
@@ -44,9 +45,9 @@ async def create_project(body: CreateProjectRequest):
 
 
 @router.get("/{project_id}")
-async def get_project(project_id: str):
+async def get_project(project_id: str, user_id: str = Query(...)):
     doc = await ProjectDoc.get(PydanticObjectId(project_id))
-    if not doc:
+    if not doc or doc.user_id != user_id:
         raise HTTPException(status_code=404, detail="Project not found")
     return _doc_to_dict(doc)
 

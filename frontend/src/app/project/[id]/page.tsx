@@ -3,8 +3,10 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
+import { useSession } from "next-auth/react";
 import { useWorkspaceStore } from "@/stores/workspace-store";
 import { WorkspaceShell } from "@/components/layout/workspace-shell";
+import { getUserId } from "@/lib/user-id";
 import type { Project } from "@/lib/types";
 
 const BACKEND_URL =
@@ -44,6 +46,7 @@ export default function ProjectPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { setProject, setPrompt, generate } = useWorkspaceStore();
+  const { data: session, status } = useSession();
 
   const [project, setLocalProject] = useState<Project | null>(null);
   const [loading, setLoading] = useState(true);
@@ -53,14 +56,15 @@ export default function ProjectPage() {
   const autoGenFired = useRef(false);
 
   useEffect(() => {
-    if (!id) return;
+    if (!id || status === "loading") return;
     // Reset state so a route change to a different project starts fresh
     setLocalProject(null);
     setLoading(true);
     setError(null);
     autoGenFired.current = false;
 
-    fetch(`${BACKEND_URL}/projects/${id}`)
+    const userId = getUserId(session);
+    fetch(`${BACKEND_URL}/projects/${id}?user_id=${encodeURIComponent(userId)}`)
       .then((r) => {
         if (!r.ok) throw new Error("Project not found");
         return r.json();
@@ -69,10 +73,10 @@ export default function ProjectPage() {
         setLocalProject(p);
         setProject(p);
       })
-      .catch((e) => setError(e.message))
+      .catch(() => router.replace("/"))
       .finally(() => setLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id]);
+  }, [id, status]);
 
   // Auto-generate from URL params once project is loaded
   useEffect(() => {

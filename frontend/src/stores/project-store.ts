@@ -11,8 +11,8 @@ interface ProjectStore {
   isLoading: boolean;
   error: string | null;
 
-  loadProjects: () => Promise<void>;
-  createProject: (name: string) => Promise<Project | null>;
+  loadProjects: (userId: string) => Promise<void>;
+  createProject: (name: string, userId: string) => Promise<Project | null>;
   deleteProject: (id: string) => Promise<void>;
 }
 
@@ -21,10 +21,10 @@ export const useProjectStore = create<ProjectStore>((set) => ({
   isLoading: false,
   error: null,
 
-  loadProjects: async () => {
+  loadProjects: async (userId) => {
     set({ isLoading: true, error: null });
     try {
-      const res = await fetch(`${BACKEND_URL}/projects/`);
+      const res = await fetch(`${BACKEND_URL}/projects/?user_id=${encodeURIComponent(userId)}`);
       if (!res.ok) throw new Error("Failed to load projects");
       const data = await res.json();
       set({ projects: data });
@@ -35,12 +35,12 @@ export const useProjectStore = create<ProjectStore>((set) => ({
     }
   },
 
-  createProject: async (name) => {
+  createProject: async (name, userId) => {
     try {
       const res = await fetch(`${BACKEND_URL}/projects/`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name }),
+        body: JSON.stringify({ name, user_id: userId }),
       });
       if (!res.ok) throw new Error("Failed to create project");
       const project = await res.json();

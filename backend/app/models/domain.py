@@ -41,6 +41,7 @@ class Project(BaseModel):
 
 
 class CreateProjectRequest(BaseModel):
+    user_id: str
     name: str
     description: str = ""
     runtime: Literal["node", "python"] = "node"
