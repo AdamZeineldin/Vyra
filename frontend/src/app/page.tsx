@@ -4,8 +4,10 @@ import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { ArrowUp, Loader2 } from "lucide-react";
+import { useSession } from "next-auth/react";
 import { useProjectStore } from "@/stores/project-store";
 import { ModelSelector } from "@/components/prompt/model-selector";
+import { getUserId } from "@/lib/user-id";
 import type { ModelConfig } from "@/lib/types";
 
 function truncateName(prompt: string, max = 60): string {
@@ -16,6 +18,7 @@ function truncateName(prompt: string, max = 60): string {
 export default function HomePage() {
   const router = useRouter();
   const { createProject } = useProjectStore();
+  const { data: session } = useSession();
   const [prompt, setPrompt] = useState("");
   const [selectedModels, setSelectedModels] = useState<ModelConfig[]>([]);
   const [submitting, setSubmitting] = useState(false);
@@ -32,7 +35,7 @@ export default function HomePage() {
   const handleSubmit = async () => {
     if (!prompt.trim() || submitting) return;
     setSubmitting(true);
-    const project = await createProject(truncateName(prompt));
+    const project = await createProject(truncateName(prompt), getUserId(session));
     if (project) {
       const params = new URLSearchParams();
       params.set("prompt", prompt.trim());

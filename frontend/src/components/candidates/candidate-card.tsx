@@ -2,8 +2,9 @@
 
 import { useState, useEffect, useRef } from "react";
 import ReactMarkdown from "react-markdown";
-import { ChevronDown, ChevronUp, Play, Loader2 } from "lucide-react";
+import { ChevronDown, ChevronUp, Play, Loader2, GitCommitHorizontal } from "lucide-react";
 import type { Candidate } from "@/lib/types";
+import { useWorkspaceStore } from "@/stores/workspace-store";
 import { Panel } from "@/components/ui/panel";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -11,9 +12,12 @@ import { getModelAccentBorder } from "@/lib/model-colors";
 import { ModelChip } from "./model-chip";
 import { FileExplorer } from "./file-explorer";
 import { CodePreview } from "./code-preview";
+
 import { ConsoleModal } from "./console-modal";
 import { StdinModal } from "./stdin-modal";
 import { useWorkspaceStore } from "@/stores/workspace-store";
+        
+import { GitHubModal } from "@/components/github/github-modal";
 
 const STDIN_PATTERNS = ["input(", "Scanner(", "readline(", "gets ", "cin >>", "sys.stdin", "STDIN"];
 
@@ -42,6 +46,7 @@ export function CandidateCard({
   showOverride,
   highlightIfRecommended,
 }: CandidateCardProps) {
+  const { setLoadingOverview, project } = useWorkspaceStore();
   const cardRef = useRef<HTMLDivElement>(null);
   const [selectedFile, setSelectedFile] = useState<string | null>(
     Object.keys(candidate.files)[0] ?? null
@@ -49,6 +54,7 @@ export function CandidateCard({
   const [expanded, setExpanded] = useState(isWinner ?? false);
   const [overview, setOverview] = useState<string | null>(null);
   const [isLoadingOverview, setIsLoadingOverview] = useState(false);
+  const [githubModalOpen, setGithubModalOpen] = useState(false);
   const lastFetchedId = useRef<string | null>(null);
   const [isRunning, setIsRunning] = useState(false);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -62,11 +68,15 @@ export function CandidateCard({
     lastFetchedId.current = candidate.id;
     setOverview(null);
     setIsLoadingOverview(true);
+    setLoadingOverview(true);
     fetch(`${BACKEND_URL}/overview/candidate/${candidate.id}`)
       .then((res) => res.ok ? res.json() : Promise.reject())
       .then((data) => setOverview(data.overview as string))
       .catch(() => setOverview("Could not load AI overview."))
-      .finally(() => setIsLoadingOverview(false));
+      .finally(() => {
+        setIsLoadingOverview(false);
+        setLoadingOverview(false);
+      });
   }, [expanded, candidate.id]);
 
   // Scroll into view when this card becomes active via tree navigation
@@ -77,9 +87,9 @@ export function CandidateCard({
   }, [isActive]);
 
   const fileCount = Object.keys(candidate.files).length;
-  const previewContent = selectedFile
-    ? candidate.files[selectedFile]?.content ?? ""
-    : "";
+  const selectedFileEntry = selectedFile ? candidate.files[selectedFile] : null;
+  const previewContent = selectedFileEntry?.content ?? "";
+  const previewLanguage = selectedFileEntry?.language;
 
   const accentBorder = getModelAccentBorder(candidate.modelId ?? "");
 
@@ -111,12 +121,13 @@ export function CandidateCard({
   };
 
   return (
+    <>
     <div ref={cardRef}>
     <Panel
       variant={isWinner ? "winner" : "default"}
       padding="md"
       className={[
-        accentBorder,
+        !isWinner ? accentBorder : "",
         !isWinner && !highlightIfRecommended && !isActive ? "opacity-70 hover:opacity-100" : "",
         highlightIfRecommended && !isWinner ? "border-primary-blue-border border-2" : "",
         isActive && !isWinner ? "ring-1 ring-[var(--color-primary-blue)] ring-offset-1 ring-offset-[var(--color-bg-tertiary)]" : "",
@@ -140,6 +151,13 @@ export function CandidateCard({
         </div>
 
         <div className="flex items-center gap-1.5">
+          <button
+            onClick={() => setGithubModalOpen(true)}
+            title="Commit to GitHub"
+            className="text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] transition-colors duration-fast"
+          >
+            <GitCommitHorizontal size={13} />
+          </button>
           {showOverride && onSelect && (
             <Button
               variant="ghost"
@@ -207,6 +225,7 @@ export function CandidateCard({
                 <CodePreview
                   content={previewContent}
                   filename={selectedFile}
+                  language={previewLanguage}
                   maxLines={12}
                 />
               )}
@@ -236,6 +255,7 @@ export function CandidateCard({
         <CodePreview
           content={previewContent}
           filename={selectedFile}
+          language={previewLanguage}
           maxLines={3}
         />
       )}
@@ -258,5 +278,16 @@ export function CandidateCard({
         />
       )}
     </div>
+
+    {githubModalOpen && project && (
+      <GitHubModal
+        mode="commit"
+        files={candidate.files}
+        projectName={project.name}
+        projectId={project.id}
+        onClose={() => setGithubModalOpen(false)}
+      />
+    )}
+    </>
   );
 }
