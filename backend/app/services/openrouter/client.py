@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 
@@ -212,7 +213,6 @@ async def get_comparative_overview(
     if not api_key:
         raise ValueError("OPENROUTER_API_KEY environment variable not set")
 
-    # Build the structured user message
     sections = [f"**Original prompt:** {prompt}\n"]
     for i, c in enumerate(candidates_data, 1):
         scores = c.get("scores", {})
@@ -261,6 +261,79 @@ async def get_comparative_overview(
             ) from exc
         except Exception as exc:
             raise ValueError(f"Could not generate comparison: {exc}") from exc
+
+
+async def stream_one_candidate(
+    api_key: str,
+    model: ModelConfig,
+    stream_id: str,
+    system_prompt: str,
+    user_message: str,
+    queue: asyncio.Queue,
+) -> CandidateResult:
+    """Stream tokens from a single model into queue, then return the full result."""
+    await queue.put({
+        "type": "candidate_started",
+        "stream_id": stream_id,
+        "model_id": model.id,
+        "model_label": model.label,
+    })
+
+    full_response = ""
+    error: str | None = None
+
+    try:
+        async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
+            async with client.stream(
+                "POST",
+                f"{OPENROUTER_BASE_URL}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                    "HTTP-Referer": os.getenv("APP_URL", "http://localhost:3000"),
+                    "X-Title": "YHack Iterative Coder",
+                },
+                json={
+                    "model": model.id,
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_message},
+                    ],
+                    "max_tokens": MAX_TOKENS,
+                    "temperature": TEMPERATURE,
+                    "stream": True,
+                },
+            ) as response:
+                response.raise_for_status()
+                async for line in response.aiter_lines():
+                    if not line.startswith("data: "):
+                        continue
+                    data_str = line[6:].strip()
+                    if data_str == "[DONE]":
+                        break
+                    try:
+                        data = json.loads(data_str)
+                        chunk = (data["choices"][0]["delta"].get("content") or "")
+                        if chunk:
+                            full_response += chunk
+                            await queue.put({
+                                "type": "candidate_chunk",
+                                "stream_id": stream_id,
+                                "chunk": chunk,
+                            })
+                    except (json.JSONDecodeError, KeyError, IndexError):
+                        pass
+    except Exception as exc:
+        error = str(exc)
+
+    files = parse_model_response(full_response) if not error else {}
+    return CandidateResult(
+        model_id=model.id,
+        model_label=model.label,
+        files={k: v.model_dump() for k, v in files.items()},
+        raw_response=full_response,
+        error=error,
+    )
 
 
 async def generate_candidates(

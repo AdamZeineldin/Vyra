@@ -33,6 +33,21 @@ function needsStdin(candidate: Candidate): boolean {
 
 import { BACKEND_URL } from "@/lib/config";
 
+function StreamingView({ content }: { content: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (ref.current) ref.current.scrollTop = ref.current.scrollHeight;
+  }, [content]);
+  return (
+    <div
+      ref={ref}
+      className="max-h-28 overflow-y-auto bg-[#0d0d0d] rounded-btn p-2.5 font-mono text-[10px] text-[#6fcf3e]/80 leading-relaxed whitespace-pre-wrap break-all"
+    >
+      {content || "\u00a0"}
+    </div>
+  );
+}
+
 interface CandidateCardProps {
   candidate: Candidate;
   isWinner?: boolean;
@@ -52,13 +67,16 @@ export function CandidateCard({
   highlightIfRecommended,
   forceCollapsed = false,
 }: CandidateCardProps) {
-  const { project } = useWorkspaceStore();
+  const { setLoadingOverview } = useWorkspaceStore();
   const cardRef = useRef<HTMLDivElement>(null);
   const [selectedFile, setSelectedFile] = useState<string | null>(
     Object.keys(candidate.files)[0] ?? null
   );
   const [expanded, setExpanded] = useState(isWinner ?? false);
   const [userExpandedOverride, setUserExpandedOverride] = useState(false);
+  const [overview, setOverview] = useState<string | null>(null);
+  const [isLoadingOverview, setIsLoadingOverview] = useState(false);
+  const lastFetchedId = useRef<string | null>(null);
   const [showScores, setShowScores] = useState(false);
   const [githubModalOpen, setGithubModalOpen] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
@@ -68,6 +86,24 @@ export function CandidateCard({
   const [showStdinModal, setShowStdinModal] = useState(false);
   const runtime = useWorkspaceStore((s) => s.project?.runtime ?? "python");
 
+  useEffect(() => {
+    if (!expanded) return;
+    if (lastFetchedId.current === candidate.id) return;
+    lastFetchedId.current = candidate.id;
+    setOverview(null);
+    setIsLoadingOverview(true);
+    setLoadingOverview(true);
+    fetch(`${BACKEND_URL}/overview/candidate/${candidate.id}`)
+      .then((res) => res.ok ? res.json() : Promise.reject())
+      .then((data) => setOverview(data.overview as string))
+      .catch(() => setOverview("Could not load AI overview."))
+      .finally(() => {
+        setIsLoadingOverview(false);
+        setLoadingOverview(false);
+      });
+  }, [expanded, candidate.id, setLoadingOverview]);
+
+  // Scroll into view when this card becomes active via tree navigation
   useEffect(() => {
     if (isActive && cardRef.current) {
       cardRef.current.scrollIntoView({ behavior: "smooth", block: "nearest" });
@@ -185,8 +221,19 @@ export function CandidateCard({
         </div>
       </div>
 
+      {/* Streaming state */}
+      {candidate.streaming && (
+        <div className="mb-2">
+          <div className="flex items-center gap-1.5 text-[10px] text-[var(--color-text-tertiary)] mb-1.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-[#6fcf3e] animate-pulse flex-shrink-0" />
+            Generating…
+          </div>
+          <StreamingView content={candidate.rawResponse} />
+        </div>
+      )}
+
       {/* Score dropdown — toggled by clicking score */}
-      {ev && showScores && (() => {
+      {!candidate.streaming && ev && showScores && (() => {
         const entries = Object.entries(ev.scores) as [string, number][];
         return (
           <div className="mt-2 vyra-fade-in">
@@ -213,14 +260,21 @@ export function CandidateCard({
       })()}
 
       {/* Error state */}
-      {candidate.error && (
+      {!candidate.streaming && candidate.error && (
         <div className="text-[11px] text-warning-text bg-warning-bg rounded-btn px-2 py-1.5 mt-2">
           Error: {candidate.error}
         </div>
       )}
 
+      {/* File count */}
+      {!candidate.streaming && (
+        <div className="text-[10px] text-[var(--color-text-tertiary)] mb-2">
+          {fileCount} file{fileCount !== 1 ? "s" : ""}
+        </div>
+      )}
+
       {/* Expanded content */}
-      {isVisiblyExpanded && (
+      {!candidate.streaming && isVisiblyExpanded && (
         <div className="flex gap-3 mt-3">
           <div className="w-40 flex-shrink-0">
             <FileExplorer
@@ -243,7 +297,7 @@ export function CandidateCard({
       )}
 
       {/* Collapsed snippet */}
-      {!isVisiblyExpanded && !candidate.error && selectedFile && (
+      {!candidate.streaming && !isVisiblyExpanded && !candidate.error && selectedFile && (
         <div className="mt-2">
           <CodePreview
             content={previewContent}
@@ -273,15 +327,6 @@ export function CandidateCard({
       )}
     </div>
 
-    {githubModalOpen && project && (
-      <GitHubModal
-        mode="commit"
-        files={candidate.files}
-        projectName={project.name}
-        projectId={project.id}
-        onClose={() => setGithubModalOpen(false)}
-      />
-    )}
     </>
   );
 }

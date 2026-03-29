@@ -5,27 +5,42 @@ export async function GET(req: NextRequest) {
   const code = req.nextUrl.searchParams.get("code");
   const stateParam = req.nextUrl.searchParams.get("state");
 
+  // Verify CSRF nonce: state param must match the nonce stored in the cookie
+  const storedStateCookie = req.cookies.get("gh_oauth_state")?.value;
   let returnPath = "/";
-  if (stateParam) {
-    try {
-      const decoded = JSON.parse(Buffer.from(stateParam, "base64").toString()) as { returnUrl?: string };
-      returnPath = decoded.returnUrl ?? "/";
-    } catch {
-      // ignore malformed state
+
+  if (!stateParam || !storedStateCookie) {
+    return NextResponse.redirect(`${origin}/?github_error=invalid_state`);
+  }
+
+  try {
+    const parsed = JSON.parse(storedStateCookie) as { nonce?: string; returnUrl?: string };
+    if (parsed.nonce !== stateParam) {
+      return NextResponse.redirect(`${origin}/?github_error=invalid_state`);
     }
+    // returnUrl was validated as same-origin in connect/route.ts
+    returnPath = parsed.returnUrl ?? "/";
+  } catch {
+    return NextResponse.redirect(`${origin}/?github_error=invalid_state`);
   }
 
   const returnUrl = new URL(returnPath, origin).toString();
 
+  // Clear the one-time state cookie
+  const clearStateCookie = (res: NextResponse) => {
+    res.cookies.set("gh_oauth_state", "", { maxAge: 0, path: "/" });
+    return res;
+  };
+
   if (!code) {
-    return NextResponse.redirect(`${returnUrl}?github_error=auth_failed`);
+    return clearStateCookie(NextResponse.redirect(`${returnUrl}?github_error=auth_failed`));
   }
 
   const clientId = process.env.GITHUB_CLIENT_ID;
   const clientSecret = process.env.GITHUB_CLIENT_SECRET;
 
   if (!clientId || !clientSecret) {
-    return NextResponse.redirect(`${returnUrl}?github_error=not_configured`);
+    return clearStateCookie(NextResponse.redirect(`${returnUrl}?github_error=not_configured`));
   }
 
   try {
@@ -41,21 +56,21 @@ export async function GET(req: NextRequest) {
     const tokenData = await tokenRes.json() as { access_token?: string; error?: string };
 
     if (tokenData.error || !tokenData.access_token) {
-      return NextResponse.redirect(`${returnUrl}?github_error=token_failed`);
+      return clearStateCookie(NextResponse.redirect(`${returnUrl}?github_error=token_failed`));
     }
 
     const response = NextResponse.redirect(returnUrl);
+    clearStateCookie(response);
     response.cookies.set("gh_token", tokenData.access_token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
       path: "/",
-      maxAge: 60 * 60 * 24 * 30, // 30 days
+      maxAge: 60 * 60 * 8, // 8 hours
     });
 
     return response;
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : "unknown";
-    return NextResponse.redirect(`${returnUrl}?github_error=${encodeURIComponent(msg)}`);
+  } catch {
+    return clearStateCookie(NextResponse.redirect(`${returnUrl}?github_error=token_failed`));
   }
 }

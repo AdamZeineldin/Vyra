@@ -4,14 +4,20 @@ import { create } from "zustand";
 import type { Candidate, Project, Version, WorkspaceMode } from "@/lib/types";
 import { shouldAutoSelect } from "@/lib/mode-logic";
 
+import { BACKEND_URL } from "@/lib/config";
+
+function str(a: unknown, b: unknown = undefined): string {
+  return typeof a === "string" ? a : typeof b === "string" ? b : "";
+}
+
 function normalizeEvaluation(raw: unknown): Candidate["evaluation"] {
   if (!raw || typeof raw !== "object") return null;
   const e = raw as Record<string, unknown>;
   return {
-    scores: (e.scores ?? {}) as Candidate["evaluation"] extends null ? never : NonNullable<Candidate["evaluation"]>["scores"],
+    scores: (e.scores ?? {}) as NonNullable<Candidate["evaluation"]>["scores"],
     totalScore: ((e.totalScore ?? e.total_score) as number) ?? 0,
-    confidence: ((e.confidence) as number) ?? 0,
-    reasoning: ((e.reasoning) as string) ?? "",
+    confidence: (e.confidence as number) ?? 0,
+    reasoning: (e.reasoning as string) ?? "",
   } as NonNullable<Candidate["evaluation"]>;
 }
 
@@ -21,14 +27,40 @@ function normalizeCandidate(raw: unknown): Candidate {
   }
   const c = raw as Record<string, unknown>;
   return {
-    ...c,
-    modelId: (c.modelId ?? c.model_id) as string,
-    modelLabel: (c.modelLabel ?? c.model_label) as string,
+    id: str(c.id, c.stream_id),
+    versionId: str(c.versionId, c.version_id),
+    modelId: str(c.modelId, c.model_id),
+    modelLabel: str(c.modelLabel, c.model_label),
+    files: (typeof c.files === "object" && c.files !== null) ? (c.files as Candidate["files"]) : {},
+    rawResponse: str(c.rawResponse, c.raw_response),
+    execution: (c.execution ?? null) as Candidate["execution"],
     evaluation: normalizeEvaluation(c.evaluation),
-  } as Candidate;
+    selected: typeof c.selected === "boolean" ? c.selected : false,
+    error: typeof c.error === "string" ? c.error : null,
+    createdAt: str(c.createdAt, c.created_at) || new Date().toISOString(),
+    streaming: false,
+  };
 }
 
-import { BACKEND_URL } from "@/lib/config";
+async function* readSSELines(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+): AsyncGenerator<Record<string, unknown>> {
+  const decoder = new TextDecoder();
+  let buffer = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+    for (const line of lines) {
+      if (!line.startsWith("data: ")) continue;
+      const dataStr = line.slice(6).trim();
+      if (!dataStr) continue;
+      try { yield JSON.parse(dataStr) as Record<string, unknown>; } catch { /* skip malformed */ }
+    }
+  }
+}
 
 export interface EvaluationSummary {
   bestCandidateId: string | null;
@@ -67,7 +99,6 @@ interface WorkspaceStore {
   isExecuting: boolean;
   isReverting: boolean;
   isLoadingOverview: boolean;
-  iterationCount: number;
   prompt: string;
   error: string | null;
   versionHistory: Version[];
@@ -107,7 +138,6 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
   isExecuting: false,
   isReverting: false,
   isLoadingOverview: false,
-  iterationCount: 0,
   prompt: "",
   error: null,
   versionHistory: [],
@@ -133,7 +163,6 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
       isExecuting: false,
       isReverting: false,
       isLoadingOverview: false,
-      iterationCount: 0,
       prompt: "",
       error: null,
       versionHistory: [],
@@ -146,56 +175,98 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
     const { project, currentVersion, prompt, mode } = get();
     if (!project || !prompt.trim()) return;
 
-    set({ isGenerating: true, error: null, candidates: [], evaluationSummary: null, selectedCandidateId: null });
+    const submittedPrompt = prompt;
+    set({ isGenerating: true, error: null, candidates: [], evaluationSummary: null, selectedCandidateId: null, prompt: "" });
 
     try {
-      const res = await fetch(`${BACKEND_URL}/generate/`, {
+      const res = await fetch(`${BACKEND_URL}/generate/stream`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          prompt,
+          prompt: submittedPrompt,
           parent_version_id: currentVersion?.id ?? null,
           model_ids: modelIds,
           project_id: project.id,
         }),
       });
 
-      if (!res.ok) {
+      if (!res.ok || !res.body) {
         const err = await res.json().catch(() => ({ detail: "Unknown error" }));
-        throw new Error(err.detail ?? "Generation failed");
+        throw new Error((err as { detail?: string }).detail ?? "Generation failed");
       }
 
-      const data = await res.json();
-      // Capture the submitted prompt before it's cleared, so version history retains it.
-      // Also populate parentId/projectId so the minimap places the node correctly
-      // before loadVersionTree replaces it with the full server object.
-      const submittedPrompt = prompt;
-      const newVersion = {
-        id: data.version_id,
-        prompt: submittedPrompt,
-        parentId: currentVersion?.id ?? null,
-        projectId: project.id,
-      } as Version;
+    // ...existing code...
+    const reader = res.body.getReader();
+    let versionId: string | null = null;
 
-      // Normalize snake_case API response to camelCase frontend types
-      const candidates = (data.candidates ?? []).map(normalizeCandidate);
+    for await (const event of readSSELines(reader)) {
+      if (event.type === "version_created") {
+        versionId = event.version_id as string;
 
-      set((state) => ({
-        candidates,
-        currentVersion: newVersion,
-        activeVersionId: data.version_id,
-        versionHistory: [...state.versionHistory, newVersion],
-        candidatesByVersionId: {
-          ...state.candidatesByVersionId,
-          [data.version_id]: candidates,
-        },
-        prompt: "",
-        iterationCount: state.iterationCount + 1,
-        // Update project name if backend generated a title on first generation
-        project: state.project && data.project_name
-          ? { ...state.project, name: data.project_name }
-          : state.project,
-      }));
+        const newVersion = {
+          id: versionId,
+          prompt: submittedPrompt,
+          parentId: currentVersion?.id ?? null,
+          projectId: project.id,
+        } as Version;
+
+        set((state) => ({
+          currentVersion: newVersion,
+          activeVersionId: versionId,
+          versionHistory: [...state.versionHistory, newVersion],
+        }));
+      } else if (event.type === "candidate_started") {
+        const placeholder: Candidate = {
+          id: event.stream_id as string,
+          versionId: versionId ?? "",
+          modelId: event.model_id as string,
+          modelLabel: event.model_label as string,
+          files: {},
+          rawResponse: "",
+          execution: null,
+          evaluation: null,
+          selected: false,
+          error: null,
+          createdAt: new Date().toISOString(),
+          streaming: true,
+        };
+        set((state) => ({ candidates: [...state.candidates, placeholder] }));
+      } else if (event.type === "candidate_chunk") {
+        set((state) => ({
+          candidates: state.candidates.map((c) =>
+            c.id === (event.stream_id as string)
+              ? { ...c, rawResponse: c.rawResponse + (event.chunk as string) }
+              : c
+          ),
+        }));
+      } else if (event.type === "candidate_done") {
+        const finalized = normalizeCandidate(event);
+        set((state) => ({
+          candidates: state.candidates.map((c) =>
+            c.id === (event.stream_id as string)
+              ? { ...finalized, streaming: false }
+              : c
+          ),
+        }));
+      } else if (event.type === "project_name") {
+        const name = event.name as string;
+        set((state) => ({
+          project: state.project ? { ...state.project, name } : null,
+        }));
+      } else if (event.type === "done") {
+        const doneVersionId =
+          (typeof event.version_id === "string" ? event.version_id : versionId) ?? null;
+        if (doneVersionId) {
+          set((state) => ({
+            candidatesByVersionId: {
+              ...state.candidatesByVersionId,
+              [doneVersionId]: state.candidates,
+            },
+          }));
+        }
+        break;
+      }
+    }
 
       // Always auto-execute + evaluate + compare so scores are available immediately
       await get().executeAll(project.runtime ?? "node");
@@ -386,7 +457,11 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
         throw new Error(`Failed to load candidates for version ${versionId}`);
       }
 
-      const candidates: Candidate[] = (await res.json()).map(normalizeCandidate);
+      const payload = (await res.json()) as unknown;
+      if (!Array.isArray(payload)) {
+        throw new Error("Invalid candidates payload");
+      }
+      const candidates: Candidate[] = payload.map(normalizeCandidate);
 
       // Find the selected candidate (winner) for this version
       const winner = candidates.find((c) => c.selected) ?? null;
@@ -415,14 +490,10 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
         const sortedScores = [...allScores].sort((a, b) => b - a);
         const gap = sortedScores.length > 1 ? sortedScores[0] - sortedScores[1] : 3;
         const confidence = Math.min(gap / 3, 1);
-
         restoredSummary = { bestCandidateId: bestId, confidence, evaluations };
       }
 
-      // Determine iteration count from versionHistory position
       const { versionHistory } = get();
-      const historyIndex = versionHistory.findIndex((v) => v.id === versionId);
-      const iterationCount = historyIndex >= 0 ? historyIndex + 1 : get().iterationCount;
 
       const revertedVersion =
         versionHistory.find((v) => v.id === versionId) ??
@@ -434,7 +505,6 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
         currentVersion: revertedVersion,
         candidates,
         selectedCandidateId: winner?.id ?? null,
-        iterationCount,
         evaluationSummary: restoredSummary,
         comparisonOverview: null,
         activeCandidateId: null,
