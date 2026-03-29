@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import ReactMarkdown from "react-markdown";
-import { ChevronDown, ChevronUp } from "lucide-react";
+import { ChevronDown, ChevronUp, Play, Loader2, GitCommitHorizontal } from "lucide-react";
 import type { Candidate } from "@/lib/types";
 import { useWorkspaceStore } from "@/stores/workspace-store";
 import { Panel } from "@/components/ui/panel";
@@ -12,6 +12,19 @@ import { getModelAccentBorder } from "@/lib/model-colors";
 import { ModelChip } from "./model-chip";
 import { FileExplorer } from "./file-explorer";
 import { CodePreview } from "./code-preview";
+
+import { ConsoleModal } from "./console-modal";
+import { StdinModal } from "./stdin-modal";
+        
+import { GitHubModal } from "@/components/github/github-modal";
+
+const STDIN_PATTERNS = ["input(", "Scanner(", "readline(", "gets ", "cin >>", "sys.stdin", "STDIN"];
+
+function needsStdin(candidate: Candidate): boolean {
+  return Object.values(candidate.files).some((f) =>
+    STDIN_PATTERNS.some((p) => f.content.includes(p))
+  );
+}
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:8000";
 
@@ -37,6 +50,9 @@ interface CandidateCardProps {
   onSelect?: (id: string) => void;
   showOverride?: boolean;
   highlightIfRecommended?: boolean;
+  /** When true, this card is collapsed regardless of its internal expand state.
+   *  The user can override this per-card by clicking "View full output". */
+  forceCollapsed?: boolean;
 }
 
 export function CandidateCard({
@@ -46,6 +62,7 @@ export function CandidateCard({
   onSelect,
   showOverride,
   highlightIfRecommended,
+  forceCollapsed = false,
 }: CandidateCardProps) {
   const { setLoadingOverview } = useWorkspaceStore();
   const cardRef = useRef<HTMLDivElement>(null);
@@ -53,9 +70,16 @@ export function CandidateCard({
     Object.keys(candidate.files)[0] ?? null
   );
   const [expanded, setExpanded] = useState(isWinner ?? false);
+  // When forceCollapsed=true, this local override lets the user expand just this card
+  const [userExpandedOverride, setUserExpandedOverride] = useState(false);
   const [overview, setOverview] = useState<string | null>(null);
   const [isLoadingOverview, setIsLoadingOverview] = useState(false);
   const lastFetchedId = useRef<string | null>(null);
+  const [isRunning, setIsRunning] = useState(false);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [consoleResult, setConsoleResult] = useState<any | null>(null);
+  const [showStdinModal, setShowStdinModal] = useState(false);
+  const runtime = useWorkspaceStore((s) => s.project?.runtime ?? "python");
 
   useEffect(() => {
     if (!expanded) return;
@@ -88,6 +112,36 @@ export function CandidateCard({
 
   const accentBorder = getModelAccentBorder(candidate.modelId ?? "");
 
+  // The card shows its expanded content only when locally expanded AND either
+  // forceCollapsed is false or the user has explicitly clicked "View full output".
+  const isVisiblyExpanded = expanded && (!forceCollapsed || userExpandedOverride);
+  const handleRun = () => {
+    if (isRunning) return;
+    if (needsStdin(candidate)) {
+      setShowStdinModal(true);
+    } else {
+      runWithStdin("");
+    }
+  };
+
+  const runWithStdin = async (stdin: string) => {
+    setShowStdinModal(false);
+    setIsRunning(true);
+    try {
+      const res = await fetch(`${BACKEND_URL}/execute/candidate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ candidate_id: candidate.id, runtime, stdin }),
+      });
+      const data = await res.json();
+      setConsoleResult(data.execution);
+    } catch {
+      setConsoleResult({ stdout: "", stderr: "Failed to reach execution server.", exit_code: 1, duration_ms: 0, timed_out: false });
+    } finally {
+      setIsRunning(false);
+    }
+  };
+
   return (
     <>
     <div ref={cardRef}>
@@ -119,29 +173,52 @@ export function CandidateCard({
         </div>
 
         <div className="flex items-center gap-1.5">
+          <button
+            onClick={() => setGithubModalOpen(true)}
+            title="Commit to GitHub"
+            className="text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] transition-colors duration-fast"
+          >
+            <GitCommitHorizontal size={13} />
+          </button>
           {showOverride && onSelect && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => onSelect(candidate.id)}
-            >
+            <Button variant="ghost" size="sm" onClick={() => onSelect(candidate.id)}>
               Select this instead
             </Button>
           )}
           {!isWinner && !showOverride && onSelect && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => onSelect(candidate.id)}
-            >
+            <Button variant="ghost" size="sm" onClick={() => onSelect(candidate.id)}>
               Select this
             </Button>
           )}
+          {forceCollapsed && !userExpandedOverride && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setUserExpandedOverride(true);
+                setExpanded(true);
+              }}
+            >
+              View full output
+            </Button>
+          )}
+          
           <button
+            onClick={handleRun}
+            disabled={isRunning}
+            title="Run program"
+            className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded bg-green-900/40 border border-green-800/60 text-green-400 hover:bg-green-900/70 disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-fast"
+          >
+            {isRunning ? <Loader2 size={10} className="animate-spin" /> : <Play size={10} />}
+            {isRunning ? "Running…" : "Run"}
+          </button>
+          
+          <button
+            data-testid="expand-toggle"
             onClick={() => setExpanded(!expanded)}
             className="text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] transition-colors duration-fast"
           >
-            {expanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+            {isVisiblyExpanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
           </button>
         </div>
       </div>
@@ -172,7 +249,7 @@ export function CandidateCard({
       )}
 
       {/* Expanded content */}
-      {!candidate.streaming && expanded && (
+      {!candidate.streaming && isVisiblyExpanded && (
         <>
           <div className="flex gap-3 mt-2">
             {/* File tree */}
@@ -216,7 +293,7 @@ export function CandidateCard({
       )}
 
       {/* Collapsed snippet */}
-      {!candidate.streaming && !expanded && !candidate.error && selectedFile && (
+      {!candidate.streaming && !isVisiblyExpanded && !candidate.error && selectedFile && (
         <CodePreview
           content={previewContent}
           filename={selectedFile}
@@ -225,6 +302,23 @@ export function CandidateCard({
         />
       )}
     </Panel>
+
+      {showStdinModal && (
+        <StdinModal
+          modelLabel={candidate.modelLabel}
+          candidate={candidate}
+          onRun={runWithStdin}
+          onCancel={() => setShowStdinModal(false)}
+        />
+      )}
+
+      {consoleResult && (
+        <ConsoleModal
+          modelLabel={candidate.modelLabel}
+          result={consoleResult}
+          onClose={() => setConsoleResult(null)}
+        />
+      )}
     </div>
 
     </>

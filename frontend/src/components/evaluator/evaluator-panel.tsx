@@ -1,7 +1,9 @@
 "use client";
 
-import { CheckCircle2, AlertTriangle, MinusCircle, Bot } from "lucide-react";
+import { useState } from "react";
+import { CheckCircle2, AlertTriangle, MinusCircle, Bot, ChevronDown, ChevronUp } from "lucide-react";
 import { Panel } from "@/components/ui/panel";
+import { Button } from "@/components/ui/button";
 import type { EvaluationSummary } from "@/stores/workspace-store";
 import type { Candidate } from "@/lib/types";
 
@@ -91,6 +93,74 @@ function ConfidenceBar({ confidence }: { confidence: number }) {
   );
 }
 
+interface CandidateTotalScoreBarProps {
+  candidateId: string;
+  modelLabel: string;
+  totalScore: number;
+  isWinner: boolean;
+}
+
+function CandidateTotalScoreBar({
+  candidateId,
+  modelLabel,
+  totalScore,
+  isWinner,
+}: CandidateTotalScoreBarProps) {
+  const pct = Math.min(100, Math.max(0, Math.round(totalScore)));
+
+  return (
+    <div className="flex items-center gap-2">
+      <span
+        className={`text-[10px] w-20 flex-shrink-0 truncate ${
+          isWinner
+            ? "text-[var(--color-text-primary)] font-semibold"
+            : "text-[var(--color-text-secondary)]"
+        }`}
+      >
+        {modelLabel}
+      </span>
+      <div className="flex-1 h-1.5 bg-[var(--color-border-secondary)] rounded-pill overflow-hidden">
+        <div
+          data-testid={`candidate-score-bar-fill-${candidateId}`}
+          className={`h-full rounded-pill transition-all duration-300 ${
+            isWinner
+              ? "bg-[var(--color-accent,#3b82f6)]"
+              : "bg-[var(--color-text-tertiary)]"
+          }`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      <span className="text-[10px] text-[var(--color-text-tertiary)] w-7 text-right">
+        {Math.round(totalScore)}
+      </span>
+    </div>
+  );
+}
+
+function buildComparativeSummary(
+  winner: Candidate,
+  otherCandidates: Candidate[],
+  summary: EvaluationSummary
+): string {
+  const winnerEval = summary.evaluations[winner.id];
+  const otherWithEval = otherCandidates.filter((c) => summary.evaluations[c.id]);
+
+  if (otherWithEval.length === 0) {
+    return `${winner.modelLabel} was the only candidate evaluated.`;
+  }
+
+  const reasoning =
+    winnerEval?.reasoning ??
+    winner.evaluation?.reasoning ??
+    "scored highest overall";
+
+  const otherParts = otherWithEval
+    .map((c) => `${c.modelLabel} (${Math.round(summary.evaluations[c.id].total_score)})`)
+    .join(", ");
+
+  return `${winner.modelLabel} won — ${reasoning}. Other candidates: ${otherParts}.`;
+}
+
 interface EvaluatorPanelProps {
   summary: EvaluationSummary;
   winner: Candidate;
@@ -98,6 +168,8 @@ interface EvaluatorPanelProps {
 }
 
 export function EvaluatorPanel({ summary, winner, otherCandidates }: EvaluatorPanelProps) {
+  const [isCollapsed, setIsCollapsed] = useState(false);
+
   const winnerEval = summary.evaluations[winner.id];
 
   if (!winnerEval) return null;
@@ -133,41 +205,93 @@ export function EvaluatorPanel({ summary, winner, otherCandidates }: EvaluatorPa
     diffRows.push({ icon: "minus", text: "Significant code churn detected in this candidate" });
   }
 
+  // All candidates (winner + others) that have evaluation data in the summary
+  const allCandidatesWithEval: Array<{ id: string; modelLabel: string; totalScore: number; isWinner: boolean }> = [
+    { id: winner.id, modelLabel: winner.modelLabel, totalScore: winnerEval.total_score, isWinner: true },
+    ...otherCandidates
+      .filter((c) => summary.evaluations[c.id])
+      .map((c) => ({
+        id: c.id,
+        modelLabel: c.modelLabel,
+        totalScore: summary.evaluations[c.id].total_score,
+        isWinner: false,
+      })),
+  ];
+
+  const comparativeSummary = buildComparativeSummary(winner, otherCandidates, summary);
+
   return (
     <Panel padding="md">
-      {/* "AI picked" banner shown when a winner has been auto-selected */}
-      {summary.bestCandidateId && (
-        <div className="flex items-center gap-1.5 mb-3 px-2 py-1.5 rounded-node bg-[var(--color-bg-info)] border border-[var(--color-border-info)]">
-          <Bot size={11} className="text-[var(--color-text-info)] flex-shrink-0" />
-          <span className="text-[11px] text-[var(--color-text-info)] font-medium">
-            AI picked {winner.modelLabel}
-          </span>
+      {/* Header row: AI picked banner + collapse toggle */}
+      <div className="flex items-center justify-between mb-3">
+        {summary.bestCandidateId && (
+          <div className="flex items-center gap-1.5 px-2 py-1.5 rounded-node bg-[var(--color-bg-info)] border border-[var(--color-border-info)]">
+            <Bot size={11} className="text-[var(--color-text-info)] flex-shrink-0" />
+            <span className="text-[11px] text-[var(--color-text-info)] font-medium">
+              AI picked {winner.modelLabel}
+            </span>
+          </div>
+        )}
+        <Button
+          variant="ghost"
+          size="sm"
+          aria-label={isCollapsed ? "Expand analysis" : "Collapse analysis"}
+          onClick={() => setIsCollapsed((prev) => !prev)}
+          className="ml-auto"
+        >
+          {isCollapsed ? <ChevronDown size={12} /> : <ChevronUp size={12} />}
+        </Button>
+      </div>
+
+      {/* Collapsible analysis body */}
+      {!isCollapsed && (
+        <div data-testid="evaluator-analysis-body">
+          {/* Confidence progress bar */}
+          <div className="mb-3">
+            <ConfidenceBar confidence={summary.confidence} />
+          </div>
+
+          {/* Candidate total score bars */}
+          <div className="flex flex-col gap-1.5 mb-3">
+            {allCandidatesWithEval.map((c) => (
+              <CandidateTotalScoreBar
+                key={c.id}
+                candidateId={c.id}
+                modelLabel={c.modelLabel}
+                totalScore={c.totalScore}
+                isWinner={c.isWinner}
+              />
+            ))}
+          </div>
+
+          {/* Comparative summary */}
+          <p
+            data-testid="comparative-summary"
+            className="text-[11px] text-[var(--color-text-secondary)] mb-3 pb-3 border-b border-[var(--color-border-tertiary)]"
+          >
+            {comparativeSummary}
+          </p>
+
+          {/* Per-dimension score bars for winner */}
+          <div className="flex flex-col gap-1.5 mb-3 pb-3 border-b border-[var(--color-border-tertiary)]">
+            {Object.entries(winnerEval.scores).map(([key, val]) => (
+              <ScoreBar key={key} label={key} value={val as number} />
+            ))}
+          </div>
+
+          {/* Diff rows */}
+          <div className="flex flex-col divide-y divide-[var(--color-border-tertiary)]">
+            {diffRows.map((row, i) => (
+              <DiffRow key={i} {...row} />
+            ))}
+            {diffRows.length === 0 && (
+              <p className="text-[11px] text-[var(--color-text-tertiary)] italic py-1">
+                {reasoning}
+              </p>
+            )}
+          </div>
         </div>
       )}
-
-      {/* Confidence progress bar */}
-      <div className="mb-3">
-        <ConfidenceBar confidence={summary.confidence} />
-      </div>
-
-      {/* Score bars */}
-      <div className="flex flex-col gap-1.5 mb-3 pb-3 border-b border-[var(--color-border-tertiary)]">
-        {Object.entries(winnerEval.scores).map(([key, val]) => (
-          <ScoreBar key={key} label={key} value={val as number} />
-        ))}
-      </div>
-
-      {/* Diff rows */}
-      <div className="flex flex-col divide-y divide-[var(--color-border-tertiary)]">
-        {diffRows.map((row, i) => (
-          <DiffRow key={i} {...row} />
-        ))}
-        {diffRows.length === 0 && (
-          <p className="text-[11px] text-[var(--color-text-tertiary)] italic py-1">
-            {reasoning}
-          </p>
-        )}
-      </div>
     </Panel>
   );
 }

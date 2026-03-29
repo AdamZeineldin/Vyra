@@ -11,12 +11,14 @@ interface PromptInputProps {
   modelIds: string[];
   currentVersionLabel?: string;
   modelSelector?: ReactNode;
+  onBeforeSend?: () => void;
 }
 
 export function PromptInput({
   modelIds,
   currentVersionLabel,
   modelSelector,
+  onBeforeSend,
 }: PromptInputProps) {
   const { prompt, setPrompt, generate, isGenerating, currentVersion } =
     useWorkspaceStore();
@@ -29,6 +31,7 @@ export function PromptInput({
 
   const handleSend = () => {
     if (!prompt.trim() || isGenerating) return;
+    onBeforeSend?.();
     generate(modelIds);
   };
 

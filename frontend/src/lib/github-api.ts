@@ -1,8 +1,6 @@
 // Shared helpers for GitHub Git Trees API
 
-export interface GitHubFetchOptions extends RequestInit {
-  // extends standard fetch options
-}
+export type GitHubFetchOptions = RequestInit;
 
 export async function githubFetch(
   token: string,

@@ -45,7 +45,7 @@ export default function ProjectPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { setProject, setPrompt, setMode, generate } = useWorkspaceStore();
+  const { setProject, setPrompt, generate, resetWorkspace, loadVersionTree, navigateToVersion } = useWorkspaceStore();
   const { data: session, status } = useSession();
 
   const [project, setLocalProject] = useState<Project | null>(null);
@@ -55,28 +55,58 @@ export default function ProjectPage() {
   // Track whether we've fired the initial auto-generate
   const autoGenFired = useRef(false);
 
+  // Track AbortController to cancel stale fetches on rapid project switching
+  const abortRef = useRef<AbortController | null>(null);
+
   useEffect(() => {
     if (!id || status === "loading") return;
-    // Reset state so a route change to a different project starts fresh
+
+    // Abort any in-flight fetch from a previous project switch
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    // Reset workspace state so no stale data from previous project leaks through
+    resetWorkspace();
     setLocalProject(null);
     setLoading(true);
     setError(null);
     autoGenFired.current = false;
 
     const userId = getUserId(session);
-    fetch(`${BACKEND_URL}/projects/${id}?user_id=${encodeURIComponent(userId)}`)
+    fetch(`${BACKEND_URL}/projects/${id}`, {
+      headers: { "X-User-Id": userId },
+      signal: controller.signal,
+    })
       .then((r) => {
         if (!r.ok) throw new Error("Project not found");
         return r.json();
       })
-      .then((p: Project) => {
+      .then(async (p: Project) => {
+        if (controller.signal.aborted) return;
         setLocalProject(p);
         setProject(p);
+
+        // Load the version tree — returns versions sorted oldest→newest
+        const versions = await loadVersionTree(p.id);
+        if (controller.signal.aborted) return;
+
+        // Navigate to the most recent version so the workspace isn't blank.
+        if (versions.length > 0) {
+          const mostRecent = versions[versions.length - 1];
+          await navigateToVersion(mostRecent.id);
+        }
       })
-      .catch(() => router.replace("/"))
-      .finally(() => setLoading(false));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, status]);
+      .catch((e) => {
+        if (e instanceof DOMException && e.name === "AbortError") return;
+        router.replace("/");
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
+
+    return () => controller.abort();
+  }, [id, status, resetWorkspace, setProject, loadVersionTree, navigateToVersion]);
 
   // Auto-generate from URL params once project is loaded
   useEffect(() => {
@@ -97,8 +127,7 @@ export default function ProjectPage() {
     router.replace(`/project/${id}`, { scroll: false });
     // generate reads prompt from store — setPrompt is synchronous in Zustand
     generate(modelIds);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [project]);
+  }, [project, searchParams, id, setPrompt, generate, router]);
 
   if (loading) return <LoadingScreen />;
   if (error || !project) return <ErrorScreen message={error ?? "Project not found"} onBack={() => router.push("/")} />;
