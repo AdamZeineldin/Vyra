@@ -142,6 +142,7 @@ export function WorkspaceShell({ project }: WorkspaceShellProps) {
   useEffect(() => {
     const persisted = loadProjectModels(project.id);
     setSelectedModels(persisted ?? (project.models as ModelConfig[]));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project.id]);
 
   // Surface store errors as toasts

@@ -125,6 +125,7 @@ export default function ProjectPage() {
       });
 
     return () => controller.abort();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     id,
     status,
@@ -153,6 +154,7 @@ export default function ProjectPage() {
     router.replace(`/project/${id}`, { scroll: false });
     // generate reads prompt from store — setPrompt is synchronous in Zustand
     generate(modelIds);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project, searchParams, id, setPrompt, generate, router]);
 
   if (loading) return <LoadingScreen />;

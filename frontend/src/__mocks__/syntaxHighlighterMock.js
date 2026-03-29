@@ -1,10 +1,9 @@
-const React = require("react");
+import React from "react";
 
 function SyntaxHighlighter({ children }) {
   return React.createElement("pre", { "data-testid": "syntax-highlighter" }, children);
 }
 
-module.exports = SyntaxHighlighter;
-module.exports.default = SyntaxHighlighter;
-module.exports.Prism = SyntaxHighlighter;
-module.exports.vscDarkPlus = {};
+export default SyntaxHighlighter;
+export const Prism = SyntaxHighlighter;
+export const vscDarkPlus = {};
