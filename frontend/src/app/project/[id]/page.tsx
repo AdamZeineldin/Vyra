@@ -74,7 +74,8 @@ export default function ProjectPage() {
     autoGenFired.current = false;
 
     const userId = getUserId(session);
-    fetch(`${BACKEND_URL}/projects/${id}?user_id=${encodeURIComponent(userId)}`, {
+    fetch(`${BACKEND_URL}/projects/${id}`, {
+      headers: { "X-User-Id": userId },
       signal: controller.signal,
     })
       .then((r) => {
@@ -86,17 +87,13 @@ export default function ProjectPage() {
         setLocalProject(p);
         setProject(p);
 
-        // Load the version tree — this populates store.versionHistory sorted oldest→newest
-        await loadVersionTree(p.id);
+        // Load the version tree — returns versions sorted oldest→newest
+        const versions = await loadVersionTree(p.id);
         if (controller.signal.aborted) return;
 
         // Navigate to the most recent version so the workspace isn't blank.
-        // We read from versionHistory (set by loadVersionTree) rather than
-        // p.currentVersionId because the backend sends snake_case (current_version_id)
-        // which does not map to the camelCase frontend type field at runtime.
-        const { versionHistory } = useWorkspaceStore.getState();
-        if (versionHistory.length > 0) {
-          const mostRecent = versionHistory[versionHistory.length - 1];
+        if (versions.length > 0) {
+          const mostRecent = versions[versions.length - 1];
           await navigateToVersion(mostRecent.id);
         }
       })
@@ -109,8 +106,7 @@ export default function ProjectPage() {
       });
 
     return () => controller.abort();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, status]);
+  }, [id, status, resetWorkspace, setProject, loadVersionTree, navigateToVersion]);
 
   // Auto-generate from URL params once project is loaded
   useEffect(() => {
@@ -127,8 +123,7 @@ export default function ProjectPage() {
     router.replace(`/project/${id}`, { scroll: false });
     // generate reads prompt from store — setPrompt is synchronous in Zustand
     generate(modelIds);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [project]);
+  }, [project, searchParams, id, setPrompt, generate, router]);
 
   if (loading) return <LoadingScreen />;
   if (error || !project) return <ErrorScreen message={error ?? "Project not found"} onBack={() => router.push("/")} />;

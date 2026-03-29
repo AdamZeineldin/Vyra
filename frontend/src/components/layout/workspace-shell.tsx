@@ -82,7 +82,6 @@ export function WorkspaceShell({ project }: WorkspaceShellProps) {
 
   const winner = candidates.find((c) => c.id === selectedCandidateId);
   const others = candidates.filter((c) => c.id !== selectedCandidateId);
-  const unselectedCandidates = candidates.filter((c) => c.id !== selectedCandidateId);
 
   const isLoading = isGenerating || isEvaluating || isExecuting;
   const hasResults = candidates.length > 0;
@@ -257,7 +256,7 @@ export function WorkspaceShell({ project }: WorkspaceShellProps) {
                 )}
 
                 <div className="flex flex-col gap-2">
-                  {unselectedCandidates.map((c) => (
+                  {others.map((c) => (
                     <CandidateCard
                       key={c.id}
                       candidate={c}

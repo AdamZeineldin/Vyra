@@ -4,6 +4,18 @@ import { create } from "zustand";
 import type { Candidate, Project, Version, WorkspaceMode } from "@/lib/types";
 import { shouldAutoSelect } from "@/lib/mode-logic";
 
+function normalizeCandidate(raw: unknown): Candidate {
+  if (typeof raw !== "object" || raw === null) {
+    throw new Error("Invalid candidate data received from API");
+  }
+  const c = raw as Record<string, unknown>;
+  return {
+    ...c,
+    modelId: (c.modelId ?? c.model_id) as string,
+    modelLabel: (c.modelLabel ?? c.model_label) as string,
+  } as Candidate;
+}
+
 const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:8000";
 
@@ -133,12 +145,7 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
       } as Version;
 
       // Normalize snake_case API response to camelCase frontend types
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const candidates = (data.candidates ?? []).map((c: any) => ({
-        ...c,
-        modelId: c.modelId ?? c.model_id,
-        modelLabel: c.modelLabel ?? c.model_label,
-      }));
+      const candidates = (data.candidates ?? []).map(normalizeCandidate);
 
       set((state) => ({
         candidates,
@@ -178,9 +185,9 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
 
   executeAll: async (runtime) => {
     const { candidates } = get();
-    set({ isExecuting: true });
+    set({ isExecuting: true, error: null });
     try {
-      await Promise.allSettled(
+      const results = await Promise.allSettled(
         candidates.map((c) =>
           fetch(`${BACKEND_URL}/execute/candidate`, {
             method: "POST",
@@ -189,6 +196,10 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
           })
         )
       );
+      const failures = results.filter((r) => r.status === "rejected").length;
+      if (failures > 0) {
+        set({ error: `${failures} of ${candidates.length} candidate(s) failed to execute` });
+      }
     } finally {
       set({ isExecuting: false });
     }
@@ -213,7 +224,10 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
         }),
       });
 
-      if (!res.ok) return;
+      if (!res.ok) {
+        set({ error: "Evaluation failed" });
+        return;
+      }
       const data = await res.json();
 
       set({
@@ -281,7 +295,7 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
       (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
     );
     set({ versionHistory: sorted });
-    return versions;
+    return sorted;
   },
 
   revertToVersion: async (versionId) => {
@@ -299,12 +313,7 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
         throw new Error(`Failed to load candidates for version ${versionId}`);
       }
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const candidates: Candidate[] = (await res.json()).map((c: any) => ({
-        ...c,
-        modelId: c.modelId ?? c.model_id,
-        modelLabel: c.modelLabel ?? c.model_label,
-      }));
+      const candidates: Candidate[] = (await res.json()).map(normalizeCandidate);
 
       // Find the selected candidate (winner) for this version
       const winner = candidates.find((c) => c.selected) ?? null;
