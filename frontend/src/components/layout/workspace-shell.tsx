@@ -12,7 +12,44 @@ import { PromptInput } from "@/components/prompt/prompt-input";
 import { ModelSelector } from "@/components/prompt/model-selector";
 import { EvaluatorPanel } from "@/components/evaluator/evaluator-panel";
 import { TreeMinimap } from "@/components/version-tree/tree-minimap";
-import type { Candidate, ModelConfig, Project } from "@/lib/types";
+import type { Candidate, ModelConfig, Project, WorkspaceMode } from "@/lib/types";
+
+const MODES: { id: WorkspaceMode; label: string; description: string }[] = [
+  { id: "user",   label: "User",   description: "You pick the winner" },
+  { id: "hybrid", label: "Hybrid", description: "AI recommends, you decide" },
+  { id: "agent",  label: "Agent",  description: "AI picks automatically" },
+];
+
+function ModeSelector() {
+  const { mode, setMode } = useWorkspaceStore();
+  return (
+    <div className="bg-[var(--color-bg-primary)] border border-[var(--color-border-tertiary)] rounded-panel p-2.5">
+      <div className="text-[9px] font-semibold tracking-[0.12em] uppercase text-[var(--color-text-tertiary)] mb-2">Mode</div>
+      <div className="flex flex-col gap-1">
+        {MODES.map((m) => {
+          const active = mode === m.id;
+          return (
+            <button
+              key={m.id}
+              onClick={() => setMode(m.id)}
+              className={[
+                "w-full text-left px-2.5 py-2 rounded-btn border transition-colors duration-fast",
+                active
+                  ? "border-[#6fcf3e] bg-[#6fcf3e12]"
+                  : "border-transparent hover:border-[var(--color-border-secondary)] hover:bg-[var(--color-bg-secondary)]",
+              ].join(" ")}
+            >
+              <div className={`text-[11px] font-semibold ${active ? "text-[#6fcf3e]" : "text-[var(--color-text-primary)]"}`}>
+                {m.label}
+              </div>
+              <div className="text-[10px] text-[var(--color-text-tertiary)] mt-0.5">{m.description}</div>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 interface SectionHeaderProps {
   children: React.ReactNode;
@@ -36,7 +73,7 @@ interface WorkspaceShellProps {
 
 export function WorkspaceShell({ project }: WorkspaceShellProps) {
   const {
-    project: storeProject,
+    currentVersion,
     candidates,
     selectedCandidateId,
     activeCandidateId,
@@ -91,10 +128,7 @@ export function WorkspaceShell({ project }: WorkspaceShellProps) {
   return (
     <div className="min-h-screen bg-[var(--color-bg-tertiary)] p-4">
       <div className="max-w-[1080px] mx-auto flex flex-col gap-3">
-        {/* Suppress the project name during first generation to avoid the
-            prompt-text → AI-name flicker. Once isGenerating clears, the AI
-            name is already committed and the user only ever sees that. */}
-        <TopBar projectName={isGenerating && !hasResults ? "" : (storeProject?.name ?? project.name)} />
+        <TopBar projectName={currentVersion?.prompt ?? ""} />
 
         <div className="flex gap-3 items-start">
           {/* LEFT: primary workflow — key triggers fade-in on version switch */}
@@ -273,6 +307,7 @@ export function WorkspaceShell({ project }: WorkspaceShellProps) {
 
           {/* RIGHT: version tree rail */}
           <div className="w-56 flex-shrink-0 flex flex-col gap-3">
+            <ModeSelector />
             <div>
               <SectionHeader>VERSION TREE</SectionHeader>
               <TreeMinimap />

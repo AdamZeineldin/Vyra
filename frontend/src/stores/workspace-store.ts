@@ -181,19 +181,21 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
               ),
             }));
 
+          } else if (event.type === "project_name") {
+            const name = event.name as string;
+            set((state) => ({
+              project: state.project ? { ...state.project, name } : null,
+            }));
+
           } else if (event.type === "done") {
-            const projectName = event.project_name as string | undefined;
-            if (versionId) {
-              set((state) => ({
+            set((state) => ({
+              ...(versionId ? {
                 candidatesByVersionId: {
                   ...state.candidatesByVersionId,
-                  [versionId!]: state.candidates,
+                  [versionId]: state.candidates,
                 },
-                project: state.project && projectName
-                  ? { ...state.project, name: projectName }
-                  : state.project,
-              }));
-            }
+              } : {}),
+            }));
             break outer;
           }
         }

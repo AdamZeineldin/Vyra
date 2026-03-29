@@ -152,6 +152,19 @@ async def generate_stream(body: GenerateRequest):
     queue: asyncio.Queue = asyncio.Queue()
 
     async def producer() -> None:
+        # Title generation runs independently — emits project_name event as soon
+        # as it has a result, which may be before models finish streaming.
+        async def title_task() -> None:
+            try:
+                title = await get_project_title(body.prompt)
+                if title and isinstance(title, str):
+                    await project.set({ProjectDoc.name: title})
+                    await queue.put({"type": "project_name", "name": title})
+            except Exception:
+                pass
+
+        title_future = asyncio.create_task(title_task()) if is_first else None
+
         async def stream_and_save(model) -> None:
             stream_id = str(uuid.uuid4())
             result = await stream_one_candidate(
@@ -187,23 +200,18 @@ async def generate_stream(body: GenerateRequest):
                 "created_at": doc.created_at.isoformat(),
             })
 
-        coros = [stream_and_save(m) for m in models]
-        if is_first:
-            coros.append(get_project_title(body.prompt))
+        # Stream all models in parallel
+        await asyncio.gather(*[stream_and_save(m) for m in models], return_exceptions=True)
 
-        results = await asyncio.gather(*coros, return_exceptions=True)
+        # Ensure title_task completes before closing the stream so its event
+        # is guaranteed to arrive before `done` if it hasn't fired yet.
+        if title_future is not None:
+            try:
+                await asyncio.wait_for(title_future, timeout=15.0)
+            except Exception:
+                pass
 
-        if is_first:
-            title = results[-1]
-            if isinstance(title, str):
-                await project.set({ProjectDoc.name: title})
-
-        refreshed = await ProjectDoc.get(project.id)
-        await queue.put({
-            "type": "done",
-            "version_id": str(version.id),
-            "project_name": refreshed.name if refreshed else project.name,
-        })
+        await queue.put({"type": "done", "version_id": str(version.id)})
 
     asyncio.create_task(producer())
 

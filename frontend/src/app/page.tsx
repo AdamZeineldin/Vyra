@@ -15,11 +15,6 @@ const MODES: { id: WorkspaceMode; label: string; description: string }[] = [
   { id: "agent",  label: "Agent",  description: "AI picks automatically" },
 ];
 
-function truncateName(prompt: string, max = 60): string {
-  const trimmed = prompt.trim();
-  return trimmed.length <= max ? trimmed : trimmed.slice(0, max).trimEnd() + "…";
-}
-
 const FULL_NAME = "Vyra";
 
 export default function HomePage() {
@@ -53,7 +48,7 @@ export default function HomePage() {
   const handleSubmit = async () => {
     if (!prompt.trim() || submitting) return;
     setSubmitting(true);
-    const project = await createProject(truncateName(prompt), getUserId(session));
+    const project = await createProject("New Project", getUserId(session));
     if (project) {
       const params = new URLSearchParams();
       params.set("prompt", prompt.trim());
