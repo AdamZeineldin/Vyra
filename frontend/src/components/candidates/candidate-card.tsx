@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import ReactMarkdown from "react-markdown";
-import { ChevronDown, ChevronUp, Play, Loader2, GitCommitHorizontal } from "lucide-react";
+import { ChevronDown, ChevronUp, Play, Loader2, GitCommitHorizontal, Eye } from "lucide-react";
 import type { Candidate } from "@/lib/types";
 import { useWorkspaceStore } from "@/stores/workspace-store";
 import { Panel } from "@/components/ui/panel";
@@ -15,6 +15,7 @@ import { CodePreview } from "./code-preview";
 import { ConsoleModal } from "./console-modal";
 import { StdinModal } from "./stdin-modal";
 import { GitHubModal } from "@/components/github/github-modal";
+import { HtmlPreviewModal } from "./html-preview-modal";
 import { BACKEND_URL } from "@/lib/config";
 
 const SCORE_LABELS: Record<string, string> = {
@@ -26,6 +27,10 @@ const SCORE_LABELS: Record<string, string> = {
 };
 
 const STDIN_PATTERNS = ["input(", "Scanner(", "readline(", "gets ", "cin >>", "sys.stdin", "STDIN"];
+
+function hasHtml(candidate: Candidate): boolean {
+  return Object.keys(candidate.files).some((p) => p.endsWith(".html"));
+}
 
 function needsStdin(candidate: Candidate): boolean {
   return Object.values(candidate.files).some((f) =>
@@ -85,6 +90,7 @@ export function CandidateCard({
     stdout: string; stderr: string; exit_code: number; duration_ms: number; timed_out: boolean;
   } | null>(null);
   const [showStdinModal, setShowStdinModal] = useState(false);
+  const [showHtmlPreview, setShowHtmlPreview] = useState(false);
   const runtime = useWorkspaceStore((s) => s.project?.runtime ?? "python");
 
   // Poll for comparison overview — only for the selected (winner) card
@@ -221,6 +227,16 @@ export function CandidateCard({
           )}
           {forceCollapsed && !userExpandedOverride && (
             <Button variant="ghost" size="sm" onClick={() => { setUserExpandedOverride(true); setExpanded(true); }}>View full output</Button>
+          )}
+          {hasHtml(candidate) && (
+            <button
+              onClick={() => setShowHtmlPreview(true)}
+              title="Preview HTML"
+              className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded bg-blue-900/40 border border-blue-800/60 text-blue-400 hover:bg-blue-900/70 transition-colors duration-fast"
+            >
+              <Eye size={10} />
+              Preview
+            </button>
           )}
           <button
             onClick={handleRun}
@@ -367,6 +383,13 @@ export function CandidateCard({
         />
       )}
     </div>
+
+    {showHtmlPreview && (
+      <HtmlPreviewModal
+        candidate={candidate}
+        onClose={() => setShowHtmlPreview(false)}
+      />
+    )}
 
     {githubModalOpen && project && (
       <GitHubModal
