@@ -13,13 +13,8 @@ import { ModelSelector } from "@/components/prompt/model-selector";
 import { EvaluatorPanel } from "@/components/evaluator/evaluator-panel";
 import { TreeMinimap } from "@/components/version-tree/tree-minimap";
 import { GitHubModal } from "@/components/github/github-modal";
-import type { Candidate, ModelConfig, Project, WorkspaceMode } from "@/lib/types";
-
-const MODES: { id: WorkspaceMode; label: string; description: string }[] = [
-  { id: "user",   label: "User",   description: "You pick the winner" },
-  { id: "hybrid", label: "Hybrid", description: "AI recommends, you decide" },
-  { id: "agent",  label: "Agent",  description: "AI picks automatically" },
-];
+import type { Candidate, ModelConfig, Project } from "@/lib/types";
+import { MODES } from "@/lib/modes";
 
 function ModeSelector() {
   const { mode, setMode } = useWorkspaceStore();
@@ -129,7 +124,7 @@ export function WorkspaceShell({ project }: WorkspaceShellProps) {
 
   const winner = candidates.find((c) => c.id === selectedCandidateId);
   const others = candidates.filter((c) => c.id !== selectedCandidateId);
-  const unselectedCandidates = candidates.filter(() => !selectedCandidateId);
+  const unselectedCandidates = candidates.filter((c) => !c.selected);
 
   const isPostGenLoading = isEvaluating || isExecuting; // loading states after generation
   const hasResults = candidates.length > 0;

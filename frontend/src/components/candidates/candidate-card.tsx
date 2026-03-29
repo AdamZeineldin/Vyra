@@ -72,7 +72,7 @@ export function CandidateCard({
         setIsLoadingOverview(false);
         setLoadingOverview(false);
       });
-  }, [expanded, candidate.id]);
+  }, [expanded, candidate.id, setLoadingOverview]);
 
   // Scroll into view when this card becomes active via tree navigation
   useEffect(() => {

@@ -7,16 +7,49 @@ import { shouldAutoSelect } from "@/lib/mode-logic";
 const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:8000";
 
+function str(a: unknown, b: unknown = undefined): string {
+  return typeof a === "string" ? a : typeof b === "string" ? b : "";
+}
+
 function normalizeCandidate(raw: unknown): Candidate {
   if (typeof raw !== "object" || raw === null) {
     throw new Error("Invalid candidate data received from API");
   }
   const c = raw as Record<string, unknown>;
   return {
-    ...c,
-    modelId: (c.modelId ?? c.model_id) as string,
-    modelLabel: (c.modelLabel ?? c.model_label) as string,
-  } as Candidate;
+    id: str(c.id, c.stream_id),
+    versionId: str(c.versionId, c.version_id),
+    modelId: str(c.modelId, c.model_id),
+    modelLabel: str(c.modelLabel, c.model_label),
+    files: (typeof c.files === "object" && c.files !== null) ? (c.files as Candidate["files"]) : {},
+    rawResponse: str(c.rawResponse, c.raw_response),
+    execution: (c.execution ?? null) as Candidate["execution"],
+    evaluation: (c.evaluation ?? null) as Candidate["evaluation"],
+    selected: typeof c.selected === "boolean" ? c.selected : false,
+    error: typeof c.error === "string" ? c.error : null,
+    createdAt: str(c.createdAt, c.created_at) || new Date().toISOString(),
+    streaming: false,
+  };
+}
+
+async function* readSSELines(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+): AsyncGenerator<Record<string, unknown>> {
+  const decoder = new TextDecoder();
+  let buffer = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+    for (const line of lines) {
+      if (!line.startsWith("data: ")) continue;
+      const dataStr = line.slice(6).trim();
+      if (!dataStr) continue;
+      try { yield JSON.parse(dataStr) as Record<string, unknown>; } catch { /* skip malformed */ }
+    }
+  }
 }
 
 export interface EvaluationSummary {
@@ -111,93 +144,73 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
       }
 
       const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
       let versionId: string | null = null;
 
-      outer: while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
+      for await (const event of readSSELines(reader)) {
+        if (event.type === "version_created") {
+          versionId = event.version_id as string;
+          const newVersion = {
+            id: versionId,
+            prompt: submittedPrompt,
+            parentId: currentVersion?.id ?? null,
+            projectId: project.id,
+          } as Version;
+          set((state) => ({
+            currentVersion: newVersion,
+            activeVersionId: versionId,
+            versionHistory: [...state.versionHistory, newVersion],
+          }));
 
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() ?? "";
+        } else if (event.type === "candidate_started") {
+          const placeholder: Candidate = {
+            id: event.stream_id as string,
+            versionId: versionId ?? "",
+            modelId: event.model_id as string,
+            modelLabel: event.model_label as string,
+            files: {},
+            rawResponse: "",
+            execution: null,
+            evaluation: null,
+            selected: false,
+            error: null,
+            createdAt: new Date().toISOString(),
+            streaming: true,
+          };
+          set((state) => ({ candidates: [...state.candidates, placeholder] }));
 
-        for (const line of lines) {
-          if (!line.startsWith("data: ")) continue;
-          const dataStr = line.slice(6).trim();
-          if (!dataStr) continue;
+        } else if (event.type === "candidate_chunk") {
+          set((state) => ({
+            candidates: state.candidates.map((c) =>
+              c.id === (event.stream_id as string)
+                ? { ...c, rawResponse: c.rawResponse + (event.chunk as string) }
+                : c
+            ),
+          }));
 
-          let event: Record<string, unknown>;
-          try { event = JSON.parse(dataStr); } catch { continue; }
+        } else if (event.type === "candidate_done") {
+          const finalized = normalizeCandidate(event);
+          set((state) => ({
+            candidates: state.candidates.map((c) =>
+              c.id === (event.stream_id as string) ? { ...finalized, streaming: false } : c
+            ),
+          }));
 
-          if (event.type === "version_created") {
-            versionId = event.version_id as string;
-            const newVersion = {
-              id: versionId,
-              prompt: submittedPrompt,
-              parentId: currentVersion?.id ?? null,
-              projectId: project.id,
-            } as Version;
-            set((state) => ({
-              currentVersion: newVersion,
-              activeVersionId: versionId,
-              versionHistory: [...state.versionHistory, newVersion],
-            }));
+        } else if (event.type === "project_name") {
+          const name = event.name as string;
+          set((state) => ({
+            project: state.project ? { ...state.project, name } : null,
+          }));
 
-          } else if (event.type === "candidate_started") {
-            const placeholder: Candidate = {
-              id: event.stream_id as string,
-              versionId: versionId ?? "",
-              modelId: event.model_id as string,
-              modelLabel: event.model_label as string,
-              files: {},
-              rawResponse: "",
-              execution: null,
-              evaluation: null,
-              selected: false,
-              error: null,
-              createdAt: new Date().toISOString(),
-              streaming: true,
-            };
-            set((state) => ({ candidates: [...state.candidates, placeholder] }));
-
-          } else if (event.type === "candidate_chunk") {
-            set((state) => ({
-              candidates: state.candidates.map((c) =>
-                c.id === (event.stream_id as string)
-                  ? { ...c, rawResponse: c.rawResponse + (event.chunk as string) }
-                  : c
-              ),
-            }));
-
-          } else if (event.type === "candidate_done") {
-            const finalized = normalizeCandidate(event);
-            set((state) => ({
-              candidates: state.candidates.map((c) =>
-                c.id === (event.stream_id as string)
-                  ? { ...finalized, streaming: false }
-                  : c
-              ),
-            }));
-
-          } else if (event.type === "project_name") {
-            const name = event.name as string;
-            set((state) => ({
-              project: state.project ? { ...state.project, name } : null,
-            }));
-
-          } else if (event.type === "done") {
-            set((state) => ({
-              ...(versionId ? {
-                candidatesByVersionId: {
-                  ...state.candidatesByVersionId,
-                  [versionId]: state.candidates,
-                },
-              } : {}),
-            }));
-            break outer;
-          }
+        } else if (event.type === "done") {
+          set((state) => ({
+            ...(versionId ? {
+              candidatesByVersionId: {
+                ...state.candidatesByVersionId,
+                [versionId]: state.candidates,
+              },
+            } : {}),
+          }));
+          break;
         }
       }
 
@@ -338,12 +351,7 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
         throw new Error(`Failed to load candidates for version ${versionId}`);
       }
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const candidates: Candidate[] = (await res.json()).map((c: any) => ({
-        ...c,
-        modelId: c.modelId ?? c.model_id,
-        modelLabel: c.modelLabel ?? c.model_label,
-      }));
+      const candidates: Candidate[] = (await res.json() as unknown[]).map(normalizeCandidate);
 
       // Find the selected candidate (winner) for this version
       const winner = candidates.find((c) => c.selected) ?? null;

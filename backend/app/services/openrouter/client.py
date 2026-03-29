@@ -225,6 +225,7 @@ async def stream_one_candidate(
                     "stream": True,
                 },
             ) as response:
+                response.raise_for_status()
                 async for line in response.aiter_lines():
                     if not line.startswith("data: "):
                         continue

@@ -138,6 +138,8 @@ export function GitHubModal({
   const fileCount = Object.keys(files).length;
   const isLoading = status === null;
   const mouseDownOnBackdrop = useRef(false);
+  // Only allow https://github.com/ URLs to prevent javascript: injection
+  const safeSuccessUrl = successUrl?.startsWith("https://github.com/") ? successUrl : null;
 
   return (
     <div
@@ -198,7 +200,7 @@ export function GitHubModal({
           )}
 
           {/* Success */}
-          {!isLoading && status?.connected && successUrl && (
+          {!isLoading && status?.connected && safeSuccessUrl && (
             <div className="text-center py-4 space-y-3">
               <div className="w-8 h-8 rounded-full bg-[#1a2e1a] border border-[#2d5a2d] flex items-center justify-center mx-auto">
                 <span className="text-[#4ade80] text-[14px]">✓</span>
@@ -212,7 +214,7 @@ export function GitHubModal({
                 </p>
               </div>
               <a
-                href={successUrl}
+                href={safeSuccessUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-1.5 text-[12px] text-[var(--color-primary-blue)] hover:underline"

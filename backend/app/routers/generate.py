@@ -2,13 +2,14 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import os
 import uuid
 from datetime import datetime
 
 from beanie import PydanticObjectId
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from app.db import CandidateDoc, ProjectDoc, VersionDoc
@@ -114,7 +115,7 @@ async def generate(body: GenerateRequest):
 
 
 @router.post("/stream")
-async def generate_stream(body: GenerateRequest):
+async def generate_stream(request: Request, body: GenerateRequest):
     """SSE endpoint — emits events as each model streams its response."""
     project = await ProjectDoc.get(PydanticObjectId(body.project_id))
     if not project:
@@ -149,7 +150,7 @@ async def generate_stream(body: GenerateRequest):
     user_message = build_user_message(body.prompt, current_files)
     is_first = not body.parent_version_id
 
-    queue: asyncio.Queue = asyncio.Queue()
+    queue: asyncio.Queue = asyncio.Queue(maxsize=256)
 
     async def producer() -> None:
         # Title generation runs independently — emits project_name event as soon
@@ -213,15 +214,25 @@ async def generate_stream(body: GenerateRequest):
 
         await queue.put({"type": "done", "version_id": str(version.id)})
 
-    asyncio.create_task(producer())
+    producer_task = asyncio.create_task(producer())
 
     async def event_stream():
-        yield f"data: {json.dumps({'type': 'version_created', 'version_id': str(version.id)})}\n\n"
-        while True:
-            event = await queue.get()
-            yield f"data: {json.dumps(event)}\n\n"
-            if event.get("type") == "done":
-                break
+        try:
+            yield f"data: {json.dumps({'type': 'version_created', 'version_id': str(version.id)})}\n\n"
+            while True:
+                if await request.is_disconnected():
+                    return
+                try:
+                    event = await asyncio.wait_for(queue.get(), timeout=1.0)
+                except asyncio.TimeoutError:
+                    continue
+                yield f"data: {json.dumps(event)}\n\n"
+                if event.get("type") == "done":
+                    break
+        finally:
+            producer_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await producer_task
 
     return StreamingResponse(
         event_stream(),

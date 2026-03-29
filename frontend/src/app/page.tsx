@@ -8,12 +8,7 @@ import { useProjectStore } from "@/stores/project-store";
 import { ModelSelector } from "@/components/prompt/model-selector";
 import { getUserId } from "@/lib/user-id";
 import type { ModelConfig, WorkspaceMode } from "@/lib/types";
-
-const MODES: { id: WorkspaceMode; label: string; description: string }[] = [
-  { id: "user",   label: "User",   description: "You pick the winner" },
-  { id: "hybrid", label: "Hybrid", description: "AI recommends, you decide" },
-  { id: "agent",  label: "Agent",  description: "AI picks automatically" },
-];
+import { MODES } from "@/lib/modes";
 
 const FULL_NAME = "Vyra";
 
