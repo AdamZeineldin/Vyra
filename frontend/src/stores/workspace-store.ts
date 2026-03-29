@@ -4,6 +4,18 @@ import { create } from "zustand";
 import type { Candidate, Project, Version, WorkspaceMode } from "@/lib/types";
 import { shouldAutoSelect } from "@/lib/mode-logic";
 
+function normalizeCandidate(raw: unknown): Candidate {
+  if (typeof raw !== "object" || raw === null) {
+    throw new Error("Invalid candidate data received from API");
+  }
+  const c = raw as Record<string, unknown>;
+  return {
+    ...c,
+    modelId: (c.modelId ?? c.model_id) as string,
+    modelLabel: (c.modelLabel ?? c.model_label) as string,
+  } as Candidate;
+}
+
 const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:8000";
 
@@ -45,10 +57,12 @@ interface WorkspaceStore {
   executeAll: (runtime: string) => Promise<void>;
   evaluateAll: () => Promise<void>;
   selectCandidate: (candidateId: string, reason?: string) => Promise<void>;
+  resetWorkspace: () => void;
   loadVersionTree: (projectId: string) => Promise<Version[]>;
   revertToVersion: (versionId: string) => Promise<boolean>;
   navigateToVersion: (versionId: string) => Promise<void>;
   navigateToCandidate: (versionId: string, candidateId: string) => Promise<void>;
+  navigateToAdjacentVersion: (direction: "prev" | "next") => Promise<void>;
 }
 
 export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
@@ -76,6 +90,26 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
   setPrompt: (prompt) => set({ prompt }),
   setLoadingOverview: (loading) => set({ isLoadingOverview: loading }),
 
+  resetWorkspace: () =>
+    set({
+      currentVersion: null,
+      candidates: [],
+      selectedCandidateId: null,
+      evaluationSummary: null,
+      isGenerating: false,
+      isEvaluating: false,
+      isExecuting: false,
+      isReverting: false,
+      isLoadingOverview: false,
+      iterationCount: 0,
+      prompt: "",
+      error: null,
+      versionHistory: [],
+      activeVersionId: null,
+      activeCandidateId: null,
+      candidatesByVersionId: {},
+    }),
+
   generate: async (modelIds) => {
     const { project, currentVersion, prompt, mode } = get();
     if (!project || !prompt.trim()) return;
@@ -100,15 +134,19 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
       }
 
       const data = await res.json();
-      const newVersion = { id: data.version_id } as Version;
+      // Capture the submitted prompt before it's cleared, so version history retains it.
+      // Also populate parentId/projectId so the minimap places the node correctly
+      // before loadVersionTree replaces it with the full server object.
+      const submittedPrompt = prompt;
+      const newVersion = {
+        id: data.version_id,
+        prompt: submittedPrompt,
+        parentId: currentVersion?.id ?? null,
+        projectId: project.id,
+      } as Version;
 
       // Normalize snake_case API response to camelCase frontend types
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const candidates = (data.candidates ?? []).map((c: any) => ({
-        ...c,
-        modelId: c.modelId ?? c.model_id,
-        modelLabel: c.modelLabel ?? c.model_label,
-      }));
+      const candidates = (data.candidates ?? []).map(normalizeCandidate);
 
       set((state) => ({
         candidates,
@@ -148,9 +186,9 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
 
   executeAll: async (runtime) => {
     const { candidates } = get();
-    set({ isExecuting: true });
+    set({ isExecuting: true, error: null });
     try {
-      await Promise.allSettled(
+      const results = await Promise.allSettled(
         candidates.map((c) =>
           fetch(`${BACKEND_URL}/execute/candidate`, {
             method: "POST",
@@ -159,14 +197,22 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
           })
         )
       );
+      const failures = results.filter((r) => r.status === "rejected").length;
+      if (failures > 0) {
+        set({ error: `${failures} of ${candidates.length} candidate(s) failed to execute` });
+      }
     } finally {
       set({ isExecuting: false });
     }
   },
 
   evaluateAll: async () => {
-    const { currentVersion, prompt } = get();
+    const { currentVersion } = get();
     if (!currentVersion) return;
+
+    // Use the version's own prompt — the store's prompt field is cleared after
+    // submission, so reading it here would send an empty string to the evaluator.
+    const versionPrompt = currentVersion.prompt ?? "";
 
     set({ isEvaluating: true });
     try {
@@ -175,11 +221,14 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           version_id: currentVersion.id,
-          prompt,
+          prompt: versionPrompt,
         }),
       });
 
-      if (!res.ok) return;
+      if (!res.ok) {
+        set({ error: "Evaluation failed" });
+        return;
+      }
       const data = await res.json();
 
       set({
@@ -226,6 +275,7 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
 
       set((state) => ({
         selectedCandidateId: candidateId,
+        activeCandidateId: candidateId,
         candidates: state.candidates.map((c) => ({
           ...c,
           selected: c.id === candidateId,
@@ -246,7 +296,7 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
       (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
     );
     set({ versionHistory: sorted });
-    return versions;
+    return sorted;
   },
 
   revertToVersion: async (versionId) => {
@@ -264,12 +314,7 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
         throw new Error(`Failed to load candidates for version ${versionId}`);
       }
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const candidates: Candidate[] = (await res.json()).map((c: any) => ({
-        ...c,
-        modelId: c.modelId ?? c.model_id,
-        modelLabel: c.modelLabel ?? c.model_label,
-      }));
+      const candidates: Candidate[] = (await res.json()).map(normalizeCandidate);
 
       // Find the selected candidate (winner) for this version
       const winner = candidates.find((c) => c.selected) ?? null;
@@ -316,6 +361,28 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
     const success = await get().revertToVersion(versionId);
     if (success) {
       set({ activeCandidateId: candidateId });
+    }
+  },
+
+  navigateToAdjacentVersion: async (direction) => {
+    const { versionHistory, activeVersionId, navigateToVersion } = get();
+    if (!versionHistory || versionHistory.length === 0) return;
+
+    const currentIndex = activeVersionId
+      ? versionHistory.findIndex((v) => v.id === activeVersionId)
+      : -1;
+
+    let newIndex: number;
+    if (direction === "next") {
+      newIndex = currentIndex === -1 ? 0 : Math.min(currentIndex + 1, versionHistory.length - 1);
+    } else {
+      newIndex = currentIndex === -1
+        ? versionHistory.length - 1
+        : Math.max(currentIndex - 1, 0);
+    }
+
+    if (newIndex !== currentIndex && versionHistory[newIndex]) {
+      await navigateToVersion(versionHistory[newIndex].id);
     }
   },
 }));

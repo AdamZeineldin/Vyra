@@ -35,6 +35,9 @@ interface CandidateCardProps {
   onSelect?: (id: string) => void;
   showOverride?: boolean;
   highlightIfRecommended?: boolean;
+  /** When true, this card is collapsed regardless of its internal expand state.
+   *  The user can override this per-card by clicking "View full output". */
+  forceCollapsed?: boolean;
 }
 
 export function CandidateCard({
@@ -44,6 +47,7 @@ export function CandidateCard({
   onSelect,
   showOverride,
   highlightIfRecommended,
+  forceCollapsed = false,
 }: CandidateCardProps) {
   const { setLoadingOverview, project } = useWorkspaceStore();
   const cardRef = useRef<HTMLDivElement>(null);
@@ -51,6 +55,8 @@ export function CandidateCard({
     Object.keys(candidate.files)[0] ?? null
   );
   const [expanded, setExpanded] = useState(isWinner ?? false);
+  // When forceCollapsed=true, this local override lets the user expand just this card
+  const [userExpandedOverride, setUserExpandedOverride] = useState(false);
   const [overview, setOverview] = useState<string | null>(null);
   const [isLoadingOverview, setIsLoadingOverview] = useState(false);
   const [githubModalOpen, setGithubModalOpen] = useState(false);
@@ -93,6 +99,9 @@ export function CandidateCard({
 
   const accentBorder = getModelAccentBorder(candidate.modelId ?? "");
 
+  // The card shows its expanded content only when locally expanded AND either
+  // forceCollapsed is false or the user has explicitly clicked "View full output".
+  const isVisiblyExpanded = expanded && (!forceCollapsed || userExpandedOverride);
   const handleRun = () => {
     if (isRunning) return;
     if (needsStdin(candidate)) {
@@ -168,6 +177,18 @@ export function CandidateCard({
               Select this
             </Button>
           )}
+          {forceCollapsed && !userExpandedOverride && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setUserExpandedOverride(true);
+                setExpanded(true);
+              }}
+            >
+              View full output
+            </Button>
+          )}
           
           <button
             onClick={handleRun}
@@ -180,10 +201,11 @@ export function CandidateCard({
           </button>
           
           <button
+            data-testid="expand-toggle"
             onClick={() => setExpanded(!expanded)}
             className="text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] transition-colors duration-fast"
           >
-            {expanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+            {isVisiblyExpanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
           </button>
         </div>
       </div>
@@ -201,7 +223,7 @@ export function CandidateCard({
       </div>
 
       {/* Expanded content */}
-      {expanded && (
+      {isVisiblyExpanded && (
         <>
           <div className="flex gap-3 mt-2">
             {/* File tree */}
@@ -245,7 +267,7 @@ export function CandidateCard({
       )}
 
       {/* Collapsed snippet */}
-      {!expanded && !candidate.error && selectedFile && (
+      {!isVisiblyExpanded && !candidate.error && selectedFile && (
         <CodePreview
           content={previewContent}
           filename={selectedFile}
