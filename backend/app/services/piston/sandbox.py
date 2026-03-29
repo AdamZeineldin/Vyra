@@ -18,6 +18,7 @@ class ExecutionRequest(BaseModel):
     files: FileMap
     runtime: Literal["node", "python"]
     timeout_seconds: int = 30
+    stdin: str = ""
 
 
 def detect_entrypoint(files: FileMap, runtime: str) -> str:
