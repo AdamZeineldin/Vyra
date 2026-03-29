@@ -13,6 +13,7 @@ import { ModelSelector } from "@/components/prompt/model-selector";
 import { EvaluatorPanel } from "@/components/evaluator/evaluator-panel";
 import { TreeMinimap } from "@/components/version-tree/tree-minimap";
 import { IterationPanel } from "@/components/version-tree/iteration-panel";
+import { saveProjectModels, loadProjectModels } from "@/lib/model-persistence";
 import type { Candidate, ModelConfig, Project } from "@/lib/types";
 
 interface SectionHeaderProps {
@@ -38,6 +39,7 @@ interface WorkspaceShellProps {
 export function WorkspaceShell({ project }: WorkspaceShellProps) {
   const {
     project: storeProject,
+    currentVersion,
     candidates,
     selectedCandidateId,
     activeCandidateId,
@@ -54,12 +56,24 @@ export function WorkspaceShell({ project }: WorkspaceShellProps) {
     error,
   } = useWorkspaceStore();
 
-  const [selectedModels, setSelectedModels] = useState<ModelConfig[]>(
-    project.models as ModelConfig[],
-  );
+  const [selectedModels, setSelectedModels] = useState<ModelConfig[]>(() => {
+    // Restore persisted model selection for this project, fall back to project defaults.
+    // We do NOT pass project.models as availableModels — that would strip any non-default
+    // model the user added (e.g. Haiku, GPT-4o Mini). Instead, structural validation is
+    // sufficient since we persist full ModelConfig objects.
+    const persisted = loadProjectModels(project.id);
+    return persisted ?? (project.models as ModelConfig[]);
+  });
   const [overridingCandidate, setOverridingCandidate] =
     useState<Candidate | null>(null);
   const [toastError, setToastError] = useState<string | null>(null);
+
+  // Re-initialize model selection when the project changes (e.g. after project switch)
+  useEffect(() => {
+    const persisted = loadProjectModels(project.id);
+    setSelectedModels(persisted ?? (project.models as ModelConfig[]));
+  }, [project.id]);
+
 
   // Surface store errors as toasts
   useEffect(() => {
@@ -68,7 +82,7 @@ export function WorkspaceShell({ project }: WorkspaceShellProps) {
 
   const winner = candidates.find((c) => c.id === selectedCandidateId);
   const others = candidates.filter((c) => c.id !== selectedCandidateId);
-  const unselectedCandidates = candidates.filter(() => !selectedCandidateId);
+  const unselectedCandidates = candidates.filter((c) => c.id !== selectedCandidateId);
 
   const isLoading = isGenerating || isEvaluating || isExecuting;
   const hasResults = candidates.length > 0;
@@ -112,6 +126,18 @@ export function WorkspaceShell({ project }: WorkspaceShellProps) {
                   {isReverting && "Loading version…"}
                   {isEvaluating && "Evaluating candidates…"}
                 </div>
+              </Panel>
+            )}
+
+            {/* Historical prompt — shown when viewing a version with a prompt */}
+            {!isLoading && !isReverting && hasResults && currentVersion?.prompt && (
+              <Panel padding="sm">
+                <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--color-text-tertiary)]">
+                  Prompt
+                </span>
+                <p className="text-[12px] text-[var(--color-text-secondary)] mt-1 leading-relaxed">
+                  {currentVersion.prompt}
+                </p>
               </Panel>
             )}
 
@@ -262,6 +288,7 @@ export function WorkspaceShell({ project }: WorkspaceShellProps) {
               <PromptInput
                 modelIds={selectedModels.map((m) => m.id)}
                 currentIteration={iterationCount}
+                onBeforeSend={() => saveProjectModels(project.id, selectedModels)}
                 modelSelector={
                   <ModelSelector
                     selected={selectedModels}

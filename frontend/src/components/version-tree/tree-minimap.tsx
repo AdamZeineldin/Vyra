@@ -192,7 +192,6 @@ export function TreeMinimap() {
     loadVersionTree,
     navigateToVersion,
     navigateToCandidate,
-    selectCandidate,
   } = useWorkspaceStore();
 
   const [versions, setVersions] = useState<Version[]>([]);
@@ -212,7 +211,6 @@ export function TreeMinimap() {
 
   const handleNavigateCandidate = async (versionId: string, candidateId: string) => {
     await navigateToCandidate(versionId, candidateId);
-    await selectCandidate(candidateId);
   };
 
   const ctx: TreeContext = {

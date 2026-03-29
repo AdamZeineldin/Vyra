@@ -45,6 +45,7 @@ interface WorkspaceStore {
   executeAll: (runtime: string) => Promise<void>;
   evaluateAll: () => Promise<void>;
   selectCandidate: (candidateId: string, reason?: string) => Promise<void>;
+  resetWorkspace: () => void;
   loadVersionTree: (projectId: string) => Promise<Version[]>;
   revertToVersion: (versionId: string) => Promise<boolean>;
   navigateToVersion: (versionId: string) => Promise<void>;
@@ -76,6 +77,26 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
   setPrompt: (prompt) => set({ prompt }),
   setLoadingOverview: (loading) => set({ isLoadingOverview: loading }),
 
+  resetWorkspace: () =>
+    set({
+      currentVersion: null,
+      candidates: [],
+      selectedCandidateId: null,
+      evaluationSummary: null,
+      isGenerating: false,
+      isEvaluating: false,
+      isExecuting: false,
+      isReverting: false,
+      isLoadingOverview: false,
+      iterationCount: 0,
+      prompt: "",
+      error: null,
+      versionHistory: [],
+      activeVersionId: null,
+      activeCandidateId: null,
+      candidatesByVersionId: {},
+    }),
+
   generate: async (modelIds) => {
     const { project, currentVersion, prompt, mode } = get();
     if (!project || !prompt.trim()) return;
@@ -100,7 +121,16 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
       }
 
       const data = await res.json();
-      const newVersion = { id: data.version_id } as Version;
+      // Capture the submitted prompt before it's cleared, so version history retains it.
+      // Also populate parentId/projectId so the minimap places the node correctly
+      // before loadVersionTree replaces it with the full server object.
+      const submittedPrompt = prompt;
+      const newVersion = {
+        id: data.version_id,
+        prompt: submittedPrompt,
+        parentId: currentVersion?.id ?? null,
+        projectId: project.id,
+      } as Version;
 
       // Normalize snake_case API response to camelCase frontend types
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -165,8 +195,12 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
   },
 
   evaluateAll: async () => {
-    const { currentVersion, prompt } = get();
+    const { currentVersion } = get();
     if (!currentVersion) return;
+
+    // Use the version's own prompt — the store's prompt field is cleared after
+    // submission, so reading it here would send an empty string to the evaluator.
+    const versionPrompt = currentVersion.prompt ?? "";
 
     set({ isEvaluating: true });
     try {
@@ -175,7 +209,7 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           version_id: currentVersion.id,
-          prompt,
+          prompt: versionPrompt,
         }),
       });
 
@@ -226,6 +260,7 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
 
       set((state) => ({
         selectedCandidateId: candidateId,
+        activeCandidateId: candidateId,
         candidates: state.candidates.map((c) => ({
           ...c,
           selected: c.id === candidateId,

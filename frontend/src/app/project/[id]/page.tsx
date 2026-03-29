@@ -45,7 +45,7 @@ export default function ProjectPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { setProject, setPrompt, generate } = useWorkspaceStore();
+  const { setProject, setPrompt, generate, resetWorkspace, loadVersionTree, navigateToVersion } = useWorkspaceStore();
   const { data: session, status } = useSession();
 
   const [project, setLocalProject] = useState<Project | null>(null);
@@ -55,26 +55,60 @@ export default function ProjectPage() {
   // Track whether we've fired the initial auto-generate
   const autoGenFired = useRef(false);
 
+  // Track AbortController to cancel stale fetches on rapid project switching
+  const abortRef = useRef<AbortController | null>(null);
+
   useEffect(() => {
     if (!id || status === "loading") return;
-    // Reset state so a route change to a different project starts fresh
+
+    // Abort any in-flight fetch from a previous project switch
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    // Reset workspace state so no stale data from previous project leaks through
+    resetWorkspace();
     setLocalProject(null);
     setLoading(true);
     setError(null);
     autoGenFired.current = false;
 
     const userId = getUserId(session);
-    fetch(`${BACKEND_URL}/projects/${id}?user_id=${encodeURIComponent(userId)}`)
+    fetch(`${BACKEND_URL}/projects/${id}?user_id=${encodeURIComponent(userId)}`, {
+      signal: controller.signal,
+    })
       .then((r) => {
         if (!r.ok) throw new Error("Project not found");
         return r.json();
       })
-      .then((p: Project) => {
+      .then(async (p: Project) => {
+        if (controller.signal.aborted) return;
         setLocalProject(p);
         setProject(p);
+
+        // Load the version tree — this populates store.versionHistory sorted oldest→newest
+        await loadVersionTree(p.id);
+        if (controller.signal.aborted) return;
+
+        // Navigate to the most recent version so the workspace isn't blank.
+        // We read from versionHistory (set by loadVersionTree) rather than
+        // p.currentVersionId because the backend sends snake_case (current_version_id)
+        // which does not map to the camelCase frontend type field at runtime.
+        const { versionHistory } = useWorkspaceStore.getState();
+        if (versionHistory.length > 0) {
+          const mostRecent = versionHistory[versionHistory.length - 1];
+          await navigateToVersion(mostRecent.id);
+        }
       })
-      .catch(() => router.replace("/"))
-      .finally(() => setLoading(false));
+      .catch((e) => {
+        if (e instanceof DOMException && e.name === "AbortError") return;
+        router.replace("/");
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
+
+    return () => controller.abort();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, status]);
 
