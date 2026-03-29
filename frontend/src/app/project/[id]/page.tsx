@@ -74,8 +74,7 @@ export default function ProjectPage() {
     autoGenFired.current = false;
 
     const userId = getUserId(session);
-    fetch(`${BACKEND_URL}/projects/${id}`, {
-      headers: { "X-User-Id": userId },
+    fetch(`${BACKEND_URL}/projects/${id}?user_id=${encodeURIComponent(userId)}`, {
       signal: controller.signal,
     })
       .then((r) => {

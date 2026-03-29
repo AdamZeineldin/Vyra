@@ -4,6 +4,17 @@ import { create } from "zustand";
 import type { Candidate, Project, Version, WorkspaceMode } from "@/lib/types";
 import { shouldAutoSelect } from "@/lib/mode-logic";
 
+function normalizeEvaluation(raw: unknown): Candidate["evaluation"] {
+  if (!raw || typeof raw !== "object") return null;
+  const e = raw as Record<string, unknown>;
+  return {
+    scores: (e.scores ?? {}) as Candidate["evaluation"] extends null ? never : NonNullable<Candidate["evaluation"]>["scores"],
+    totalScore: ((e.totalScore ?? e.total_score) as number) ?? 0,
+    confidence: ((e.confidence) as number) ?? 0,
+    reasoning: ((e.reasoning) as string) ?? "",
+  } as NonNullable<Candidate["evaluation"]>;
+}
+
 function normalizeCandidate(raw: unknown): Candidate {
   if (typeof raw !== "object" || raw === null) {
     throw new Error("Invalid candidate data received from API");
@@ -13,6 +24,7 @@ function normalizeCandidate(raw: unknown): Candidate {
     ...c,
     modelId: (c.modelId ?? c.model_id) as string,
     modelLabel: (c.modelLabel ?? c.model_label) as string,
+    evaluation: normalizeEvaluation(c.evaluation),
   } as Candidate;
 }
 
@@ -28,12 +40,28 @@ export interface EvaluationSummary {
   >;
 }
 
+export interface CandidateRanking {
+  candidateId: string;
+  modelLabel: string;
+  totalScore: number;
+  scores: Record<string, number>;
+  rank: number;
+  reasoning: string;
+}
+
+export interface ComparisonOverview {
+  comparison: string;
+  rankings: CandidateRanking[];
+}
+
 interface WorkspaceStore {
   project: Project | null;
   currentVersion: Version | null;
   candidates: Candidate[];
   selectedCandidateId: string | null;
   evaluationSummary: EvaluationSummary | null;
+  comparisonOverview: ComparisonOverview | null;
+  isLoadingComparison: boolean;
   mode: WorkspaceMode;
   isGenerating: boolean;
   isEvaluating: boolean;
@@ -56,6 +84,7 @@ interface WorkspaceStore {
   generate: (modelIds: string[]) => Promise<void>;
   executeAll: (runtime: string) => Promise<void>;
   evaluateAll: () => Promise<void>;
+  fetchComparison: () => Promise<void>;
   selectCandidate: (candidateId: string, reason?: string) => Promise<void>;
   resetWorkspace: () => void;
   loadVersionTree: (projectId: string) => Promise<Version[]>;
@@ -71,6 +100,8 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
   candidates: [],
   selectedCandidateId: null,
   evaluationSummary: null,
+  comparisonOverview: null,
+  isLoadingComparison: false,
   mode: "user",
   isGenerating: false,
   isEvaluating: false,
@@ -96,6 +127,8 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
       candidates: [],
       selectedCandidateId: null,
       evaluationSummary: null,
+      comparisonOverview: null,
+      isLoadingComparison: false,
       isGenerating: false,
       isEvaluating: false,
       isExecuting: false,
@@ -165,10 +198,13 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
           : state.project,
       }));
 
-      // In agent/hybrid mode: auto-execute + evaluate, then conditionally auto-select
+      // Always auto-execute + evaluate + compare so scores are available immediately
+      await get().executeAll(project.runtime ?? "node");
+      await get().evaluateAll();
+      get().fetchComparison();
+
+      // In agent/hybrid mode: auto-select the winner
       if (mode === "agent" || mode === "hybrid") {
-        await get().executeAll(project.runtime ?? "node");
-        await get().evaluateAll();
         const { evaluationSummary } = get();
         if (
           evaluationSummary?.bestCandidateId &&
@@ -255,6 +291,39 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
     }
   },
 
+  fetchComparison: async () => {
+    const { currentVersion } = get();
+    if (!currentVersion) return;
+
+    set({ isLoadingComparison: true });
+    try {
+      const res = await fetch(`${BACKEND_URL}/overview/compare`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ version_id: currentVersion.id }),
+      });
+
+      if (!res.ok) return;
+      const data = await res.json();
+
+      set({
+        comparisonOverview: {
+          comparison: data.comparison,
+          rankings: (data.rankings ?? []).map((r: Record<string, unknown>) => ({
+            candidateId: r.candidate_id as string,
+            modelLabel: r.model_label as string,
+            totalScore: r.total_score as number,
+            scores: r.scores as Record<string, number>,
+            rank: r.rank as number,
+            reasoning: r.reasoning as string,
+          })),
+        },
+      });
+    } finally {
+      set({ isLoadingComparison: false });
+    }
+  },
+
   selectCandidate: async (candidateId, reason) => {
     const { project, currentVersion } = get();
     if (!project || !currentVersion) return;
@@ -319,8 +388,35 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
       // Find the selected candidate (winner) for this version
       const winner = candidates.find((c) => c.selected) ?? null;
 
-      // Determine iteration count: use the version's depth + 1 if available
-      // We derive it from versionHistory position so we don't need the full Version object
+      // Rebuild evaluationSummary from persisted candidate evaluation data
+      // so scores survive tab reloads without re-running evaluation
+      const evaluatedCandidates = candidates.filter((c) => c.evaluation);
+      let restoredSummary: EvaluationSummary | null = null;
+      if (evaluatedCandidates.length > 0) {
+        const evaluations: EvaluationSummary["evaluations"] = {};
+        let bestId: string | null = null;
+        let bestScore = -1;
+        for (const c of evaluatedCandidates) {
+          const ev = c.evaluation!;
+          evaluations[c.id] = {
+            total_score: ev.totalScore,
+            scores: ev.scores as unknown as Record<string, number>,
+            reasoning: ev.reasoning,
+          };
+          if (ev.totalScore > bestScore) {
+            bestScore = ev.totalScore;
+            bestId = c.id;
+          }
+        }
+        const allScores = evaluatedCandidates.map((c) => c.evaluation!.totalScore);
+        const sortedScores = [...allScores].sort((a, b) => b - a);
+        const gap = sortedScores.length > 1 ? sortedScores[0] - sortedScores[1] : 3;
+        const confidence = Math.min(gap / 3, 1);
+
+        restoredSummary = { bestCandidateId: bestId, confidence, evaluations };
+      }
+
+      // Determine iteration count from versionHistory position
       const { versionHistory } = get();
       const historyIndex = versionHistory.findIndex((v) => v.id === versionId);
       const iterationCount = historyIndex >= 0 ? historyIndex + 1 : get().iterationCount;
@@ -336,7 +432,8 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
         candidates,
         selectedCandidateId: winner?.id ?? null,
         iterationCount,
-        evaluationSummary: null,
+        evaluationSummary: restoredSummary,
+        comparisonOverview: null,
         activeCandidateId: null,
         candidatesByVersionId: {
           ...state.candidatesByVersionId,

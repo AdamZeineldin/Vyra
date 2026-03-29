@@ -3,9 +3,9 @@
 import { useEffect, useRef, useState, useCallback, forwardRef, useImperativeHandle } from "react";
 
 const PEEK = 64; // px of adjacent slide visible above/below
-const ANIM_MS = 380;
-const BOUNDARY_THRESHOLD = 100; // accumulated delta before swiping
-const ACCUM_RESET_MS = 300; // reset accumulator after scroll pause
+const ANIM_MS = 520; // slower, more deliberate slide transition
+const BOUNDARY_THRESHOLD = 220; // requires more scroll force to trigger
+const ACCUM_RESET_MS = 500; // longer window — lets momentum build
 
 export interface WorkspaceViewportHandle {
   scrollCurrentToElement: (el: HTMLElement) => void;
@@ -90,10 +90,14 @@ export const WorkspaceViewport = forwardRef<WorkspaceViewportHandle, WorkspaceVi
         setWithTransition(true);
         setSlideOffset(delta);
 
-        // After animation: snap back instantly (store has new data by now)
+        // After animation: snap back instantly and scroll new slide to top
         setTimeout(() => {
           setWithTransition(false);
           setSlideOffset(0);
+          // Reset scroll position so new workspace starts at the top
+          if (currentSlideRef.current) {
+            currentSlideRef.current.scrollTop = 0;
+          }
           setTimeout(() => {
             animatingRef.current = false;
           }, 80);
@@ -155,7 +159,7 @@ export const WorkspaceViewport = forwardRef<WorkspaceViewportHandle, WorkspaceVi
     const trackStyle: React.CSSProperties = {
       transform: `translateY(${baseTrackY + slideOffset}px)`,
       transition: withTransition
-        ? `transform ${ANIM_MS}ms cubic-bezier(0.22, 1, 0.36, 1)`
+        ? `transform ${ANIM_MS}ms cubic-bezier(0.16, 1, 0.3, 1)`
         : "none",
       willChange: "transform",
     };
