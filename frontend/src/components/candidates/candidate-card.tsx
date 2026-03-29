@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import ReactMarkdown from "react-markdown";
-import { ChevronDown, ChevronUp, Play, Loader2, GitCommitHorizontal, Eye } from "lucide-react";
+import { ChevronDown, ChevronUp, Play, Loader2, Eye } from "lucide-react";
 import type { Candidate } from "@/lib/types";
 import { useWorkspaceStore } from "@/stores/workspace-store";
 import { Panel } from "@/components/ui/panel";
@@ -14,7 +14,6 @@ import { FileExplorer } from "./file-explorer";
 import { CodePreview } from "./code-preview";
 import { ConsoleModal } from "./console-modal";
 import { StdinModal } from "./stdin-modal";
-import { GitHubModal } from "@/components/github/github-modal";
 import { HtmlPreviewModal } from "./html-preview-modal";
 import { BACKEND_URL } from "@/lib/config";
 
@@ -72,7 +71,7 @@ export function CandidateCard({
   highlightIfRecommended,
   forceCollapsed = false,
 }: CandidateCardProps) {
-  const { project, candidates: allCandidates } = useWorkspaceStore();
+  const { candidates: allCandidates } = useWorkspaceStore();
   const cardRef = useRef<HTMLDivElement>(null);
   const [selectedFile, setSelectedFile] = useState<string | null>(
     Object.keys(candidate.files)[0] ?? null
@@ -82,8 +81,7 @@ export function CandidateCard({
   const [showScores, setShowScores] = useState(false);
   const [overview, setOverview] = useState<string | null>(null);
   const [overviewStatus, setOverviewStatus] = useState<"not_started" | "generating" | "ready">("not_started");
-  const [githubModalOpen, setGithubModalOpen] = useState(false);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const hasSeenGenerating = useRef(false);
   const [isRunning, setIsRunning] = useState(false);
   const [consoleResult, setConsoleResult] = useState<{
@@ -207,15 +205,7 @@ export function CandidateCard({
         </div>
 
         <div className="flex items-center gap-1.5">
-          <button
-            onClick={() => setGithubModalOpen(true)}
-            title="Commit to GitHub"
-            aria-label="Commit to GitHub"
-            className="text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] transition-colors duration-fast"
-          >
-            <GitCommitHorizontal size={13} />
-          </button>
-          {showOverride && onSelect && (
+{showOverride && onSelect && (
             <Button variant="ghost" size="sm" onClick={() => onSelect(candidate.id)}>
               Select this instead
             </Button>
@@ -391,15 +381,6 @@ export function CandidateCard({
       />
     )}
 
-    {githubModalOpen && project && (
-      <GitHubModal
-        mode="commit"
-        files={candidate.files}
-        projectName={project.name}
-        projectId={project.id}
-        onClose={() => setGithubModalOpen(false)}
-      />
-    )}
-    </>
+</>
   );
 }
