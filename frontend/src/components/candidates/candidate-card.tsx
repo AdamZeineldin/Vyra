@@ -33,6 +33,21 @@ function needsStdin(candidate: Candidate): boolean {
   );
 }
 
+function StreamingView({ content }: { content: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (ref.current) ref.current.scrollTop = ref.current.scrollHeight;
+  }, [content]);
+  return (
+    <div
+      ref={ref}
+      className="max-h-28 overflow-y-auto bg-[#0d0d0d] rounded-btn p-2.5 font-mono text-[10px] text-[#6fcf3e]/80 leading-relaxed whitespace-pre-wrap break-all"
+    >
+      {content || "\u00a0"}
+    </div>
+  );
+}
+
 interface CandidateCardProps {
   candidate: Candidate;
   isWinner?: boolean;
@@ -223,8 +238,19 @@ export function CandidateCard({
         </div>
       </div>
 
+      {/* Streaming state */}
+      {candidate.streaming && (
+        <div className="mb-2">
+          <div className="flex items-center gap-1.5 text-[10px] text-[var(--color-text-tertiary)] mb-1.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-[#6fcf3e] animate-pulse flex-shrink-0" />
+            Generating…
+          </div>
+          <StreamingView content={candidate.rawResponse} />
+        </div>
+      )}
+
       {/* Score dropdown — toggled by clicking score */}
-      {ev && showScores && (() => {
+      {!candidate.streaming && ev && showScores && (() => {
         const entries = Object.entries(ev.scores) as [string, number][];
         return (
           <div className="mt-2 vyra-fade-in">
@@ -251,14 +277,21 @@ export function CandidateCard({
       })()}
 
       {/* Error state */}
-      {candidate.error && (
+      {!candidate.streaming && candidate.error && (
         <div className="text-[11px] text-warning-text bg-warning-bg rounded-btn px-2 py-1.5 mt-2">
           Error: {candidate.error}
         </div>
       )}
 
+      {/* File count */}
+      {!candidate.streaming && (
+        <div className="text-[10px] text-[var(--color-text-tertiary)] mb-2">
+          {fileCount} file{fileCount !== 1 ? "s" : ""}
+        </div>
+      )}
+
       {/* Expanded content */}
-      {isVisiblyExpanded && (
+      {!candidate.streaming && isVisiblyExpanded && (
         <div>
           <div className="flex gap-3 mt-3">
             <div className="w-40 flex-shrink-0">
@@ -302,7 +335,7 @@ export function CandidateCard({
       )}
 
       {/* Collapsed snippet */}
-      {!isVisiblyExpanded && !candidate.error && selectedFile && (
+      {!candidate.streaming && !isVisiblyExpanded && !candidate.error && selectedFile && (
         <div className="mt-2">
           <CodePreview
             content={previewContent}

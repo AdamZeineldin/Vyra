@@ -44,7 +44,7 @@ export interface Version {
   readonly createdAt: string;
 }
 
-// === Candidate (one per model per iteration) ===
+// === Candidate (one per model per version) ===
 
 export interface ExecutionResult {
   readonly stdout: string;
@@ -80,6 +80,8 @@ export interface Candidate {
   readonly selected: boolean;
   readonly error: string | null;
   readonly createdAt: string;
+  /** True while the model is still streaming its response. */
+  readonly streaming?: boolean;
 }
 
 // === API request/response shapes (frontend → Python backend) ===

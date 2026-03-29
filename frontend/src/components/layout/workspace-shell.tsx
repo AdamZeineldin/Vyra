@@ -17,9 +17,59 @@ import { PromptInput } from "@/components/prompt/prompt-input";
 import { ModelSelector } from "@/components/prompt/model-selector";
 import { EvaluatorPanel } from "@/components/evaluator/evaluator-panel";
 import { TreeMinimap } from "@/components/version-tree/tree-minimap";
-import { IterationPanel } from "@/components/version-tree/iteration-panel";
+import { GitHubModal } from "@/components/github/github-modal";
 import { saveProjectModels, loadProjectModels } from "@/lib/model-persistence";
 import type { Candidate, ModelConfig, Project } from "@/lib/types";
+import { MODES } from "@/lib/modes";
+
+function ModeSelector() {
+  const { mode, setMode } = useWorkspaceStore();
+  const [open, setOpen] = useState(false);
+  const active = MODES.find((m) => m.id === mode)!;
+
+  return (
+    <div className="bg-[var(--color-bg-primary)] border border-[var(--color-border-tertiary)] rounded-panel overflow-hidden">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="w-full flex items-center justify-between px-3 py-2.5 hover:bg-[var(--color-bg-secondary)] transition-colors duration-fast"
+      >
+        <div className="flex items-center gap-2">
+          <span className="text-[9px] font-semibold tracking-[0.1em] uppercase text-[var(--color-text-tertiary)]">Mode</span>
+          <span className="text-[11px] font-semibold text-[#6fcf3e]">{active.label}</span>
+        </div>
+        <svg
+          width="10" height="10" viewBox="0 0 10 10" fill="none"
+          className={`text-[var(--color-text-tertiary)] transition-transform duration-150 ${open ? "rotate-180" : ""}`}
+        >
+          <path d="M2 3.5L5 6.5L8 3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+        </svg>
+      </button>
+
+      {open && (
+        <div className="border-t border-[var(--color-border-tertiary)]">
+          {MODES.map((m) => {
+            const isActive = mode === m.id;
+            return (
+              <button
+                key={m.id}
+                onClick={() => { setMode(m.id); setOpen(false); }}
+                className={[
+                  "w-full text-left px-3 py-2.5 transition-colors duration-fast",
+                  isActive ? "bg-[#6fcf3e12]" : "hover:bg-[var(--color-bg-secondary)]",
+                ].join(" ")}
+              >
+                <div className={`text-[11px] font-semibold ${isActive ? "text-[#6fcf3e]" : "text-[var(--color-text-primary)]"}`}>
+                  {m.label}
+                </div>
+                <div className="text-[10px] text-[var(--color-text-tertiary)] mt-0.5">{m.description}</div>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
 
 interface SectionHeaderProps {
   children: React.ReactNode;
@@ -62,7 +112,6 @@ export function WorkspaceShell({ project }: WorkspaceShellProps) {
     isEvaluating,
     isExecuting,
     isReverting,
-    iterationCount,
     mode,
     error,
   } = store;
@@ -74,12 +123,20 @@ export function WorkspaceShell({ project }: WorkspaceShellProps) {
   const [overridingCandidate, setOverridingCandidate] =
     useState<Candidate | null>(null);
   const [toastError, setToastError] = useState<string | null>(null);
+  const [githubModalOpen, setGithubModalOpen] = useState(false);
+  const [hasRepo, setHasRepo] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return !!localStorage.getItem(`vyra_gh_repo_${project.id}`);
+  });
+
+  const handleRepoCreated = () => setHasRepo(true);
 
   // Phase 3: "Continue with this" collapse + prompt pulse
   const [candidatesCollapsed, setCandidatesCollapsed] = useState(false);
   const [shouldPulsePrompt, setShouldPulsePrompt] = useState(false);
   const promptWrapperRef = useRef<HTMLDivElement>(null);
   const viewportHandle = useRef<WorkspaceViewportHandle>(null);
+  const pulseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prevSelectedRef = useRef<string | null>(null);
 
   // Re-initialize model selection when the project changes
@@ -157,6 +214,7 @@ export function WorkspaceShell({ project }: WorkspaceShellProps) {
   const others = candidates.filter((c) => c.id !== selectedCandidateId);
 
   const isLoading = isGenerating || isEvaluating || isExecuting;
+  const isPostGenLoading = isEvaluating || isExecuting; // loading states after generation
   const hasResults = candidates.length > 0;
   const needsSelection = hasResults && !selectedCandidateId;
 
@@ -178,14 +236,11 @@ export function WorkspaceShell({ project }: WorkspaceShellProps) {
     ? `NEXT PROMPT — ALL MODELS WILL BUILD FROM ${winner.modelLabel.toUpperCase()}'S OUTPUT`
     : "NEXT PROMPT";
 
-  // Phase 3: Clear pulse when collapse is toggled off
-  const pulseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
   const handleContinueWithThis = () => {
-    setCandidatesCollapsed(true);
-    setShouldPulsePrompt(true);
-    if (promptWrapperRef.current && viewportHandle.current) {
-      viewportHandle.current.scrollCurrentToElement(promptWrapperRef.current);
+  setCandidatesCollapsed(true);
+  setShouldPulsePrompt(true);
+  if (promptWrapperRef.current && viewportHandle.current) {
+    viewportHandle.current.scrollCurrentToElement(promptWrapperRef.current);
     }
     if (pulseTimerRef.current) clearTimeout(pulseTimerRef.current);
     pulseTimerRef.current = setTimeout(() => setShouldPulsePrompt(false), 800);
@@ -202,10 +257,19 @@ export function WorkspaceShell({ project }: WorkspaceShellProps) {
     }
   }, [candidatesCollapsed]);
 
+  const exportFiles = (winner ?? candidates[0])?.files ?? {};
+  const hasFiles = Object.keys(exportFiles).length > 0;
+  const githubModalMode = hasRepo ? "commit" : "create";
+
   return (
     <div className="min-h-screen bg-[var(--color-bg-tertiary)] p-4">
       <div className="max-w-[1080px] mx-auto flex flex-col gap-3">
-        <TopBar projectName={storeProject?.name ?? project.name} />
+        <TopBar
+          projectName={currentVersion?.prompt ?? ""}
+          hasFiles={hasFiles}
+          hasRepo={hasRepo}
+          onGitHubClick={() => setGithubModalOpen(true)}
+        />
 
         <div className="flex gap-3 items-start">
           {/* LEFT: workspace carousel viewport */}
@@ -217,26 +281,17 @@ export function WorkspaceShell({ project }: WorkspaceShellProps) {
             onSwipeNext={() => store.navigateToAdjacentVersion("next")}
             disabled={isLoading || isReverting}
           >
-            {/* Loading / reverting state */}
-            {(isLoading || isReverting) && (
+            {/* Loading state — post-gen phases and reverting (not generation itself, SSE handles that) */}
+            {(isPostGenLoading || isReverting) && (
               <div className="vyra-fade-in">
                 <Panel padding="md">
                   <div className="flex items-center gap-2.5 text-[12px] text-[var(--color-text-tertiary)]">
                     <span className="w-4 h-4 rounded-full border-2 border-primary-blue border-t-transparent animate-spin flex-shrink-0" />
-                    {isGenerating &&
-                      `Generating from ${selectedModels.length} models in parallel…`}
                     {isExecuting && "Running code in sandbox…"}
                     {isReverting && "Loading version…"}
                     {isEvaluating && "Evaluating candidates…"}
                   </div>
                 </Panel>
-                {/* Shimmer skeleton for expected content */}
-                {isGenerating && (
-                  <div className="flex flex-col gap-2 mt-2">
-                    <div className="vyra-shimmer h-24 rounded-panel" />
-                    <div className="vyra-shimmer h-24 rounded-panel" />
-                  </div>
-                )}
               </div>
             )}
 
@@ -259,9 +314,7 @@ export function WorkspaceShell({ project }: WorkspaceShellProps) {
             {winner && (
               <>
                 <div>
-                  <SectionHeader>
-                    SELECTED OUTPUT — ITERATION {iterationCount}
-                  </SectionHeader>
+                  <SectionHeader>SELECTED OUTPUT</SectionHeader>
                   <CandidateCard
                     candidate={winner}
                     isWinner
@@ -284,6 +337,11 @@ export function WorkspaceShell({ project }: WorkspaceShellProps) {
                     >
                       Override pick
                     </Button>
+                    {hasRepo && (
+                      <Button variant="ghost" size="sm" onClick={() => setGithubModalOpen(true)}>
+                        Commit to GitHub
+                      </Button>
+                    )}
                   </div>
                 </div>
 
@@ -321,12 +379,12 @@ export function WorkspaceShell({ project }: WorkspaceShellProps) {
               </>
             )}
 
-            {/* PRE-SELECTION view */}
-            {needsSelection && !isLoading && (
+            {/* PRE-SELECTION view — shown during streaming and after */}
+            {needsSelection && !isPostGenLoading && (
               <div>
                 <SectionHeader
                   action={
-                    mode !== "agent" ? (
+                    !isGenerating && mode !== "agent" ? (
                       <Button
                         variant="ghost"
                         size="sm"
@@ -338,7 +396,7 @@ export function WorkspaceShell({ project }: WorkspaceShellProps) {
                     ) : undefined
                   }
                 >
-                  CANDIDATE OUTPUTS — PICK ONE TO CONTINUE
+                  {isGenerating ? "GENERATING…" : "CANDIDATE OUTPUTS — PICK ONE TO CONTINUE"}
                 </SectionHeader>
 
                 {evaluationSummary?.bestCandidateId && (
@@ -383,8 +441,8 @@ export function WorkspaceShell({ project }: WorkspaceShellProps) {
               </div>
             )}
 
-            {/* Empty state */}
-            {!isLoading && !hasResults && (
+            {/* Empty state — shown only before first generation starts */}
+            {!isGenerating && !isPostGenLoading && !hasResults && (
               <Panel padding="md">
                 <p className="text-[12px] text-[var(--color-text-tertiary)] text-center py-8">
                   Select models below and submit your first prompt to begin.
@@ -407,10 +465,8 @@ export function WorkspaceShell({ project }: WorkspaceShellProps) {
               >
                 <PromptInput
                   modelIds={selectedModels.map((m) => m.id)}
-                  currentIteration={iterationCount}
-                  onBeforeSend={() =>
-                    saveProjectModels(project.id, selectedModels)
-                  }
+                  currentVersionLabel={winner ? `${winner.modelLabel} output` : undefined}
+                  onBeforeSend={() => saveProjectModels(project.id, selectedModels)}
                   modelSelector={
                     <ModelSelector
                       selected={selectedModels}
@@ -419,21 +475,15 @@ export function WorkspaceShell({ project }: WorkspaceShellProps) {
                   }
                 />
               </div>
-            </div>
+             </div>
           </WorkspaceViewport>
 
           {/* RIGHT: version tree rail */}
           <div className="w-56 flex-shrink-0 flex flex-col gap-3">
+            <ModeSelector />
             <div>
               <SectionHeader>VERSION TREE</SectionHeader>
               <TreeMinimap />
-            </div>
-            <div>
-              <SectionHeader>ITERATIONS</SectionHeader>
-              <IterationPanel
-                current={iterationCount}
-                total={Math.max(iterationCount, 3)}
-              />
             </div>
           </div>
         </div>
@@ -444,6 +494,17 @@ export function WorkspaceShell({ project }: WorkspaceShellProps) {
           candidate={overridingCandidate}
           onConfirm={handleOverrideConfirm}
           onCancel={() => setOverridingCandidate(null)}
+        />
+      )}
+
+      {githubModalOpen && (
+        <GitHubModal
+          mode={githubModalMode}
+          files={exportFiles}
+          projectName={project.name}
+          projectId={project.id}
+          onRepoCreated={handleRepoCreated}
+          onClose={() => setGithubModalOpen(false)}
         />
       )}
 

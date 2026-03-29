@@ -2,18 +2,15 @@
 
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
-import Image from "next/image";
 import { ArrowUp, Loader2 } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { useProjectStore } from "@/stores/project-store";
 import { ModelSelector } from "@/components/prompt/model-selector";
 import { getUserId } from "@/lib/user-id";
-import type { ModelConfig } from "@/lib/types";
+import type { ModelConfig, WorkspaceMode } from "@/lib/types";
+import { MODES } from "@/lib/modes";
 
-function truncateName(prompt: string, max = 60): string {
-  const trimmed = prompt.trim();
-  return trimmed.length <= max ? trimmed : trimmed.slice(0, max).trimEnd() + "…";
-}
+const FULL_NAME = "Vyra";
 
 export default function HomePage() {
   const router = useRouter();
@@ -21,8 +18,19 @@ export default function HomePage() {
   const { data: session } = useSession();
   const [prompt, setPrompt] = useState("");
   const [selectedModels, setSelectedModels] = useState<ModelConfig[]>([]);
+  const [selectedMode, setSelectedMode] = useState<WorkspaceMode>("user");
   const [submitting, setSubmitting] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const [typedName, setTypedName] = useState("");
+  useEffect(() => {
+    if (typedName.length >= FULL_NAME.length) return;
+    const timer = setTimeout(
+      () => setTypedName(FULL_NAME.slice(0, typedName.length + 1)),
+      typedName.length === 0 ? 120 : 90
+    );
+    return () => clearTimeout(timer);
+  }, [typedName]);
 
   // Auto-resize textarea
   useEffect(() => {
@@ -35,11 +43,12 @@ export default function HomePage() {
   const handleSubmit = async () => {
     if (!prompt.trim() || submitting) return;
     setSubmitting(true);
-    const project = await createProject(truncateName(prompt), getUserId(session));
+    const project = await createProject("New Project", getUserId(session));
     if (project) {
       const params = new URLSearchParams();
       params.set("prompt", prompt.trim());
       params.set("models", selectedModels.map((m) => m.id).join(","));
+      params.set("mode", selectedMode);
       router.push(`/project/${project.id}?${params.toString()}`);
     } else {
       setSubmitting(false);
@@ -59,10 +68,13 @@ export default function HomePage() {
     <div className="h-full min-h-screen bg-[var(--color-bg-tertiary)] flex flex-col items-center justify-center p-6">
       <div className="w-full max-w-2xl flex flex-col gap-6">
         {/* Branding */}
-        <div className="flex items-center justify-center gap-2">
-          <Image src="/logo.png" alt="Vyra" width={104} height={104} />
-          <h1 className="text-[108px] font-semibold tracking-tight text-[var(--color-text-primary)]">
-            Vyra
+        <div className="flex justify-center">
+          <h1 className="text-[108px] font-semibold tracking-tight text-[#6fcf3e] inline-flex items-end gap-[8px]">
+            {typedName}
+            <span
+              className="inline-block bg-[#6fcf3e] animate-[blink_1s_step-end_infinite]"
+              style={{ width: "0.55em", height: "5px", marginBottom: "0.22em", flexShrink: 0 }}
+            />
           </h1>
         </div>
 
@@ -104,6 +116,31 @@ export default function HomePage() {
               )}
             </button>
           </div>
+        </div>
+
+        {/* Mode selector */}
+        <div className="flex gap-2">
+          {MODES.map((m) => {
+            const active = selectedMode === m.id;
+            return (
+              <button
+                key={m.id}
+                onClick={() => setSelectedMode(m.id)}
+                className={`flex-1 flex flex-col items-start px-3 py-2.5 rounded-panel border text-left transition-colors duration-fast ${
+                  active
+                    ? "border-[#6fcf3e] bg-[#6fcf3e12]"
+                    : "border-[var(--color-border-tertiary)] bg-[var(--color-bg-primary)] hover:border-[var(--color-border-secondary)]"
+                }`}
+              >
+                <span className={`text-[12px] font-semibold ${active ? "text-[#6fcf3e]" : "text-[var(--color-text-primary)]"}`}>
+                  {m.label}
+                </span>
+                <span className="text-[11px] text-[var(--color-text-tertiary)] mt-0.5">
+                  {m.description}
+                </span>
+              </button>
+            );
+          })}
         </div>
 
         <p className="text-center text-[11px] text-[var(--color-text-tertiary)]">

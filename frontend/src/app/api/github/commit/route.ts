@@ -1,12 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
+import { z } from "zod";
 import { githubFetch, getLatestCommitInfo, commitFiles } from "@/lib/github-api";
 
-interface CommitBody {
-  repoFullName: string; // "owner/repo"
-  message: string;
-  files: Record<string, string>; // path → content
-}
+const commitSchema = z.object({
+  repoFullName: z.string().regex(/^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/, "Invalid repo format (expected owner/repo)"),
+  message: z.string().min(1).max(500).default("Update files from Vyra"),
+  files: z.record(z.string().max(500), z.string().max(500_000)).refine(
+    (f) => Object.keys(f).length <= 50,
+    "Too many files (max 50)"
+  ),
+});
 
 interface GitHubRepoInfo {
   default_branch: string;
@@ -19,8 +23,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Not authenticated with GitHub" }, { status: 401 });
   }
 
-  const body: CommitBody = await req.json();
-  const { repoFullName, message, files } = body;
+  const parsed = commitSchema.safeParse(await req.json());
+  if (!parsed.success) {
+    return NextResponse.json({ error: parsed.error.issues[0]?.message ?? "Invalid request" }, { status: 400 });
+  }
+  const { repoFullName, message, files } = parsed.data;
 
   try {
     // 1. Get the repo's default branch
@@ -55,10 +62,7 @@ export async function POST(req: NextRequest) {
     });
 
     return NextResponse.json({ success: true, commitUrl });
-  } catch (e) {
-    return NextResponse.json(
-      { error: e instanceof Error ? e.message : "Unknown error" },
-      { status: 500 }
-    );
+  } catch {
+    return NextResponse.json({ error: "Failed to commit files" }, { status: 500 });
   }
 }

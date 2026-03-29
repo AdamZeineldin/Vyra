@@ -1,13 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
+import { z } from "zod";
 import { githubFetch, getLatestCommitInfo, commitFiles } from "@/lib/github-api";
 
-interface CreateRepoBody {
-  name: string;
-  private: boolean;
-  description: string;
-  files: Record<string, string>; // path → content
-}
+const createRepoSchema = z.object({
+  name: z.string().regex(/^[a-z0-9][a-z0-9-]{0,98}[a-z0-9]$|^[a-z0-9]$/, "Invalid repo name"),
+  private: z.boolean(),
+  description: z.string().max(350).default(""),
+  files: z.record(z.string().max(500), z.string().max(500_000)).refine(
+    (f) => Object.keys(f).length <= 50,
+    "Too many files (max 50)"
+  ),
+});
 
 interface GitHubRepo {
   full_name: string;
@@ -22,7 +26,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Not authenticated with GitHub" }, { status: 401 });
   }
 
-  const body: CreateRepoBody = await req.json();
+  const parsed = createRepoSchema.safeParse(await req.json());
+  if (!parsed.success) {
+    return NextResponse.json({ error: parsed.error.issues[0]?.message ?? "Invalid request" }, { status: 400 });
+  }
+  const body = parsed.data;
 
   try {
     // 1. Create the repository (auto_init creates an initial commit + main branch)
@@ -67,10 +75,7 @@ export async function POST(req: NextRequest) {
     });
 
     return NextResponse.json({ success: true, repoUrl, repoFullName });
-  } catch (e) {
-    return NextResponse.json(
-      { error: e instanceof Error ? e.message : "Unknown error" },
-      { status: 500 }
-    );
+  } catch {
+    return NextResponse.json({ error: "Failed to create repository" }, { status: 500 });
   }
 }

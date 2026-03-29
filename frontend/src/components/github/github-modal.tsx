@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { X, GitBranch, ExternalLink, Loader2 } from "lucide-react";
 import type { FileMap } from "@/lib/types";
 
@@ -16,6 +16,7 @@ interface GitHubModalProps {
   files: FileMap;
   projectName: string;
   projectId: string;
+  onRepoCreated?: () => void;
   onClose: () => void;
 }
 
@@ -47,6 +48,7 @@ export function GitHubModal({
   files,
   projectName,
   projectId,
+  onRepoCreated,
   onClose,
 }: GitHubModalProps) {
   const [status, setStatus] = useState<GitHubStatus | null>(null);
@@ -72,7 +74,9 @@ export function GitHubModal({
   };
 
   const handleCreate = async () => {
-    if (!repoName.trim()) return;
+    const slugged = toRepoSlug(repoName.trim());
+    if (!slugged) return;
+    setRepoName(slugged);
     setIsSubmitting(true);
     setError(null);
     try {
@@ -80,7 +84,7 @@ export function GitHubModal({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          name: repoName.trim(),
+          name: slugged,
           private: isPrivate,
           description,
           files: filesAsRecord(files),
@@ -91,7 +95,10 @@ export function GitHubModal({
         setError(data.error ?? "Failed to create repository");
         return;
       }
-      if (data.repoFullName) storeRepo(projectId, data.repoFullName);
+      if (data.repoFullName) {
+        storeRepo(projectId, data.repoFullName);
+        onRepoCreated?.();
+      }
       setSuccessUrl(data.repoUrl ?? null);
     } catch {
       setError("Network error — please try again");
@@ -130,11 +137,15 @@ export function GitHubModal({
 
   const fileCount = Object.keys(files).length;
   const isLoading = status === null;
+  const mouseDownOnBackdrop = useRef(false);
+  // Only allow https://github.com/ URLs to prevent javascript: injection
+  const safeSuccessUrl = successUrl?.startsWith("https://github.com/") ? successUrl : null;
 
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center"
-      onClick={onClose}
+      onMouseDown={(e) => { mouseDownOnBackdrop.current = e.target === e.currentTarget; }}
+      onClick={(e) => { if (e.target === e.currentTarget && mouseDownOnBackdrop.current) onClose(); }}
     >
       <div className="absolute inset-0 bg-black/60" />
       <div
@@ -189,7 +200,7 @@ export function GitHubModal({
           )}
 
           {/* Success */}
-          {!isLoading && status?.connected && successUrl && (
+          {!isLoading && status?.connected && safeSuccessUrl && (
             <div className="text-center py-4 space-y-3">
               <div className="w-8 h-8 rounded-full bg-[#1a2e1a] border border-[#2d5a2d] flex items-center justify-center mx-auto">
                 <span className="text-[#4ade80] text-[14px]">✓</span>
@@ -203,7 +214,7 @@ export function GitHubModal({
                 </p>
               </div>
               <a
-                href={successUrl}
+                href={safeSuccessUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-1.5 text-[12px] text-[var(--color-primary-blue)] hover:underline"
@@ -231,9 +242,11 @@ export function GitHubModal({
                   <input
                     value={repoName}
                     onChange={(e) => setRepoName(e.target.value)}
+                    onBlur={(e) => setRepoName(toRepoSlug(e.target.value) || toRepoSlug(projectName))}
                     className="w-full bg-[var(--color-bg-secondary)] border border-[var(--color-border-secondary)] rounded-btn px-3 py-1.5 text-[12px] text-[var(--color-text-primary)] placeholder:text-[var(--color-text-tertiary)] focus:outline-none focus:border-[var(--color-primary-blue)] transition-colors"
                     placeholder="my-project"
                   />
+                  <p className="text-[10px] text-[var(--color-text-tertiary)] mt-1">Spaces and special characters will be converted to hyphens on save.</p>
                 </div>
 
                 <div>
@@ -267,7 +280,7 @@ export function GitHubModal({
 
               <button
                 onClick={handleCreate}
-                disabled={!repoName.trim() || isSubmitting}
+                disabled={!toRepoSlug(repoName.trim()) || isSubmitting}
                 className="w-full flex items-center justify-center gap-2 py-2 bg-[var(--color-text-primary)] text-[var(--color-bg-primary)] text-[12px] font-medium rounded-btn hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-opacity"
               >
                 {isSubmitting ? (
