@@ -11,6 +11,7 @@ from pydantic import Field
 
 
 class ProjectDoc(Document):
+    user_id: str
     name: str
     description: str = ""
     runtime: Literal["node", "python"] = "node"

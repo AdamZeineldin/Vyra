@@ -3,14 +3,25 @@
 import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Image from "next/image";
-import { SquarePen, Trash2, UserCircle, Settings, X, LogOut } from "lucide-react";
+import {
+  SquarePen,
+  Trash2,
+  UserCircle,
+  Settings,
+  X,
+  LogOut,
+} from "lucide-react";
 import { useSession, signIn, signOut } from "next-auth/react";
 import { useProjectStore } from "@/stores/project-store";
 import { useWorkspaceStore } from "@/stores/workspace-store";
+import { getUserId } from "@/lib/user-id";
 
 function SettingsModal({ onClose }: { onClose: () => void }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center"
+      onClick={onClose}
+    >
       <div className="absolute inset-0 bg-black/60" />
       <div
         className="relative z-10 w-[520px] max-w-[90vw] bg-[var(--color-bg-primary)] border border-[var(--color-border-tertiary)] rounded-panel shadow-2xl"
@@ -40,14 +51,22 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
   );
 }
 
-function ProfilePopup({ name, image, onClose, onSignOut }: {
+function ProfilePopup({
+  name,
+  image,
+  onClose,
+  onSignOut,
+}: {
   name: string;
   image?: string | null;
   onClose: () => void;
   onSignOut: () => void;
 }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-start" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-start"
+      onClick={onClose}
+    >
       <div className="absolute inset-0 bg-black/40" />
       <div
         className="relative z-10 mb-[60px] ml-3 w-52 bg-[var(--color-bg-primary)] border border-[var(--color-border-tertiary)] rounded-panel shadow-xl overflow-hidden"
@@ -56,9 +75,18 @@ function ProfilePopup({ name, image, onClose, onSignOut }: {
         {/* User info */}
         <div className="flex items-center gap-2.5 px-3 py-3 border-b border-[var(--color-border-tertiary)]">
           {image ? (
-            <Image src={image} alt={name} width={28} height={28} className="rounded-full flex-shrink-0" />
+            <Image
+              src={image}
+              alt={name}
+              width={28}
+              height={28}
+              className="rounded-full flex-shrink-0"
+            />
           ) : (
-            <UserCircle size={28} className="flex-shrink-0 text-[var(--color-text-tertiary)]" />
+            <UserCircle
+              size={28}
+              className="flex-shrink-0 text-[var(--color-text-tertiary)]"
+            />
           )}
           <span className="text-[12px] font-medium text-[var(--color-text-primary)] truncate">
             {name}
@@ -81,18 +109,20 @@ function ProfilePopup({ name, image, onClose, onSignOut }: {
 export function ProjectSidebar() {
   const router = useRouter();
   const pathname = usePathname();
-  const { projects, isLoading, loadProjects, deleteProject } = useProjectStore();
-  const { data: session } = useSession();
+  const { projects, isLoading, loadProjects, deleteProject } =
+    useProjectStore();
   const activeProjectName = useWorkspaceStore((s) => s.project?.name);
+  const { data: session, status } = useSession();
 
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
 
   useEffect(() => {
-    loadProjects();
+    if (status === "loading") return;
+    loadProjects(getUserId(session));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [status]);
 
   const currentProjectId = pathname.startsWith("/project/")
     ? pathname.split("/project/")[1]
@@ -108,7 +138,13 @@ export function ProjectSidebar() {
             className="flex-1 min-w-0 text-left hover:opacity-80 transition-opacity duration-fast"
           >
             <div className="flex items-center gap-2">
-              <Image src="/logo.png" alt="Vyra" width={20} height={20} className="flex-shrink-0" />
+              <Image
+                src="/logo.png"
+                alt="Vyra"
+                width={20}
+                height={20}
+                className="flex-shrink-0"
+              />
               <span className="text-[13px] font-semibold text-[var(--color-text-primary)] tracking-tight">
                 Vyra
               </span>
@@ -133,7 +169,9 @@ export function ProjectSidebar() {
           </p>
 
           {isLoading && (
-            <p className="text-[11px] text-[var(--color-text-tertiary)] px-2 py-2">Loading…</p>
+            <p className="text-[11px] text-[var(--color-text-tertiary)] px-2 py-2">
+              Loading…
+            </p>
           )}
 
           {!isLoading && projects.length === 0 && (
@@ -165,7 +203,7 @@ export function ProjectSidebar() {
                   >
                     <button
                       onClick={() => {
-                        deleteProject(p.id);
+                        deleteProject(p.id, getUserId(session));
                         setConfirmDeleteId(null);
                       }}
                       className="text-[10px] text-warning-text hover:underline font-medium"
@@ -215,7 +253,10 @@ export function ProjectSidebar() {
                 className="rounded-full flex-shrink-0"
               />
             ) : (
-              <UserCircle size={16} className="flex-shrink-0 text-[var(--color-text-tertiary)]" />
+              <UserCircle
+                size={16}
+                className="flex-shrink-0 text-[var(--color-text-tertiary)]"
+              />
             )}
             <span className="text-[12px] text-[var(--color-text-secondary)] truncate">
               {session?.user?.name ?? "Sign in"}

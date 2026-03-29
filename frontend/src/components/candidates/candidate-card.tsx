@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import ReactMarkdown from "react-markdown";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import type { Candidate } from "@/lib/types";
+import { useWorkspaceStore } from "@/stores/workspace-store";
 import { Panel } from "@/components/ui/panel";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -31,6 +32,7 @@ export function CandidateCard({
   showOverride,
   highlightIfRecommended,
 }: CandidateCardProps) {
+  const { setLoadingOverview } = useWorkspaceStore();
   const cardRef = useRef<HTMLDivElement>(null);
   const [selectedFile, setSelectedFile] = useState<string | null>(
     Object.keys(candidate.files)[0] ?? null
@@ -46,11 +48,15 @@ export function CandidateCard({
     lastFetchedId.current = candidate.id;
     setOverview(null);
     setIsLoadingOverview(true);
+    setLoadingOverview(true);
     fetch(`${BACKEND_URL}/overview/candidate/${candidate.id}`)
       .then((res) => res.ok ? res.json() : Promise.reject())
       .then((data) => setOverview(data.overview as string))
       .catch(() => setOverview("Could not load AI overview."))
-      .finally(() => setIsLoadingOverview(false));
+      .finally(() => {
+        setIsLoadingOverview(false);
+        setLoadingOverview(false);
+      });
   }, [expanded, candidate.id]);
 
   // Scroll into view when this card becomes active via tree navigation
@@ -73,7 +79,7 @@ export function CandidateCard({
       variant={isWinner ? "winner" : "default"}
       padding="md"
       className={[
-        accentBorder,
+        !isWinner ? accentBorder : "",
         !isWinner && !highlightIfRecommended && !isActive ? "opacity-70 hover:opacity-100" : "",
         highlightIfRecommended && !isWinner ? "border-primary-blue-border border-2" : "",
         isActive && !isWinner ? "ring-1 ring-[var(--color-primary-blue)] ring-offset-1 ring-offset-[var(--color-bg-tertiary)]" : "",

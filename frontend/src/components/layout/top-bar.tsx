@@ -1,5 +1,6 @@
 "use client";
 
+import { Loader2 } from "lucide-react";
 import { useWorkspaceStore } from "@/stores/workspace-store";
 import type { WorkspaceMode } from "@/lib/types";
 
@@ -21,7 +22,7 @@ function nextMode(current: WorkspaceMode): WorkspaceMode {
 }
 
 export function TopBar({ projectName }: TopBarProps) {
-  const { mode, setMode } = useWorkspaceStore();
+  const { mode, setMode, isLoadingOverview } = useWorkspaceStore();
 
   return (
     <div className="flex items-center justify-between px-4 py-2.5 bg-[var(--color-bg-primary)] border border-[var(--color-border-tertiary)] rounded-panel">
@@ -31,10 +32,16 @@ export function TopBar({ projectName }: TopBarProps) {
         </span>
         <button
           onClick={() => setMode(nextMode(mode))}
-          className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-pill bg-[var(--color-bg-info)] border border-[var(--color-border-info)] text-[var(--color-text-info)] hover:bg-primary-blue-bg transition-colors duration-fast cursor-pointer"
+          className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-pill bg-[#1a2e1a] border border-[#2d5a2d] text-[#4ade80] hover:bg-[#1f361f] transition-colors duration-fast cursor-pointer"
         >
           {MODE_LABELS[mode]}
         </button>
+        {isLoadingOverview && (
+          <div className="flex items-center gap-1.5 text-[11px] text-[var(--color-text-tertiary)]">
+            <Loader2 size={12} className="animate-spin" />
+            <span>Generating overview…</span>
+          </div>
+        )}
       </div>
     </div>
   );
