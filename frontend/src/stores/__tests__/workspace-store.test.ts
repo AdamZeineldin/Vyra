@@ -516,6 +516,146 @@ describe("navigateToCandidate — highlights without selecting", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Phase 4: navigateToAdjacentVersion
+// ---------------------------------------------------------------------------
+
+describe("navigateToAdjacentVersion", () => {
+  beforeEach(() => {
+    // Mock fetch for revertToVersion (called internally by navigateToVersion)
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: () =>
+        Promise.resolve([
+          { ...makeCandidate("c1", "v1"), selected: true },
+        ]),
+    });
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it("navigates to the next version from mid-tree", async () => {
+    const v1 = makeVersion("v1");
+    const v2 = makeVersion("v2", "v1");
+    const v3 = makeVersion("v3", "v2");
+    useWorkspaceStore.setState({
+      project: makeProject(),
+      versionHistory: [v1, v2, v3],
+      activeVersionId: "v2",
+    });
+
+    await useWorkspaceStore.getState().navigateToAdjacentVersion("next");
+
+    expect(useWorkspaceStore.getState().activeVersionId).toBe("v3");
+  });
+
+  it("navigates to the previous version from mid-tree", async () => {
+    const v1 = makeVersion("v1");
+    const v2 = makeVersion("v2", "v1");
+    const v3 = makeVersion("v3", "v2");
+    useWorkspaceStore.setState({
+      project: makeProject(),
+      versionHistory: [v1, v2, v3],
+      activeVersionId: "v2",
+    });
+
+    await useWorkspaceStore.getState().navigateToAdjacentVersion("prev");
+
+    expect(useWorkspaceStore.getState().activeVersionId).toBe("v1");
+  });
+
+  it("no-op at the leaf (newest) boundary — does not navigate past last version", async () => {
+    const v1 = makeVersion("v1");
+    const v2 = makeVersion("v2", "v1");
+    useWorkspaceStore.setState({
+      project: makeProject(),
+      versionHistory: [v1, v2],
+      activeVersionId: "v2",
+    });
+
+    await useWorkspaceStore.getState().navigateToAdjacentVersion("next");
+
+    // Already at last; should remain at v2
+    expect(useWorkspaceStore.getState().activeVersionId).toBe("v2");
+  });
+
+  it("no-op at the root (oldest) boundary — does not navigate past first version", async () => {
+    const v1 = makeVersion("v1");
+    const v2 = makeVersion("v2", "v1");
+    useWorkspaceStore.setState({
+      project: makeProject(),
+      versionHistory: [v1, v2],
+      activeVersionId: "v1",
+    });
+
+    await useWorkspaceStore.getState().navigateToAdjacentVersion("prev");
+
+    // Already at first; should remain at v1
+    expect(useWorkspaceStore.getState().activeVersionId).toBe("v1");
+  });
+
+  it("no-op when versionHistory is empty", async () => {
+    useWorkspaceStore.setState({
+      project: makeProject(),
+      versionHistory: [],
+      activeVersionId: null,
+    });
+
+    // Should not throw
+    await expect(
+      useWorkspaceStore.getState().navigateToAdjacentVersion("next")
+    ).resolves.toBeUndefined();
+
+    expect(useWorkspaceStore.getState().activeVersionId).toBeNull();
+  });
+
+  it("when activeVersionId is null + direction next → navigates to first version", async () => {
+    const v1 = makeVersion("v1");
+    const v2 = makeVersion("v2", "v1");
+    useWorkspaceStore.setState({
+      project: makeProject(),
+      versionHistory: [v1, v2],
+      activeVersionId: null,
+    });
+
+    await useWorkspaceStore.getState().navigateToAdjacentVersion("next");
+
+    expect(useWorkspaceStore.getState().activeVersionId).toBe("v1");
+  });
+
+  it("when activeVersionId is null + direction prev → navigates to last version", async () => {
+    const v1 = makeVersion("v1");
+    const v2 = makeVersion("v2", "v1");
+    useWorkspaceStore.setState({
+      project: makeProject(),
+      versionHistory: [v1, v2],
+      activeVersionId: null,
+    });
+
+    await useWorkspaceStore.getState().navigateToAdjacentVersion("prev");
+
+    expect(useWorkspaceStore.getState().activeVersionId).toBe("v2");
+  });
+
+  it("works correctly with a single version in history", async () => {
+    const v1 = makeVersion("v1");
+    useWorkspaceStore.setState({
+      project: makeProject(),
+      versionHistory: [v1],
+      activeVersionId: "v1",
+    });
+
+    // Both directions should be no-ops
+    await useWorkspaceStore.getState().navigateToAdjacentVersion("next");
+    expect(useWorkspaceStore.getState().activeVersionId).toBe("v1");
+
+    await useWorkspaceStore.getState().navigateToAdjacentVersion("prev");
+    expect(useWorkspaceStore.getState().activeVersionId).toBe("v1");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Phase 2: Selection invariants — no conflicting state
 // ---------------------------------------------------------------------------
 

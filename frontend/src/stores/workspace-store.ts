@@ -62,6 +62,7 @@ interface WorkspaceStore {
   revertToVersion: (versionId: string) => Promise<boolean>;
   navigateToVersion: (versionId: string) => Promise<void>;
   navigateToCandidate: (versionId: string, candidateId: string) => Promise<void>;
+  navigateToAdjacentVersion: (direction: "prev" | "next") => Promise<void>;
 }
 
 export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
@@ -360,6 +361,28 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
     const success = await get().revertToVersion(versionId);
     if (success) {
       set({ activeCandidateId: candidateId });
+    }
+  },
+
+  navigateToAdjacentVersion: async (direction) => {
+    const { versionHistory, activeVersionId, navigateToVersion } = get();
+    if (!versionHistory || versionHistory.length === 0) return;
+
+    const currentIndex = activeVersionId
+      ? versionHistory.findIndex((v) => v.id === activeVersionId)
+      : -1;
+
+    let newIndex: number;
+    if (direction === "next") {
+      newIndex = currentIndex === -1 ? 0 : Math.min(currentIndex + 1, versionHistory.length - 1);
+    } else {
+      newIndex = currentIndex === -1
+        ? versionHistory.length - 1
+        : Math.max(currentIndex - 1, 0);
+    }
+
+    if (newIndex !== currentIndex && versionHistory[newIndex]) {
+      await navigateToVersion(versionHistory[newIndex].id);
     }
   },
 }));

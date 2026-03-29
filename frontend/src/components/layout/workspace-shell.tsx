@@ -1,8 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useWorkspaceStore } from "@/stores/workspace-store";
 import { TopBar } from "./top-bar";
+import {
+  WorkspaceViewport,
+  type WorkspaceViewportHandle,
+} from "./workspace-viewport";
 import { Panel } from "@/components/ui/panel";
 import { Button } from "@/components/ui/button";
 import { Toast, ToastContainer } from "@/components/ui/toast";
@@ -37,6 +41,7 @@ interface WorkspaceShellProps {
 }
 
 export function WorkspaceShell({ project }: WorkspaceShellProps) {
+  const store = useWorkspaceStore();
   const {
     project: storeProject,
     currentVersion,
@@ -45,6 +50,8 @@ export function WorkspaceShell({ project }: WorkspaceShellProps) {
     activeCandidateId,
     activeVersionId,
     evaluationSummary,
+    versionHistory,
+    candidatesByVersionId,
     selectCandidate,
     evaluateAll,
     isGenerating,
@@ -54,13 +61,9 @@ export function WorkspaceShell({ project }: WorkspaceShellProps) {
     iterationCount,
     mode,
     error,
-  } = useWorkspaceStore();
+  } = store;
 
   const [selectedModels, setSelectedModels] = useState<ModelConfig[]>(() => {
-    // Restore persisted model selection for this project, fall back to project defaults.
-    // We do NOT pass project.models as availableModels — that would strip any non-default
-    // model the user added (e.g. Haiku, GPT-4o Mini). Instead, structural validation is
-    // sufficient since we persist full ModelConfig objects.
     const persisted = loadProjectModels(project.id);
     return persisted ?? (project.models as ModelConfig[]);
   });
@@ -68,20 +71,83 @@ export function WorkspaceShell({ project }: WorkspaceShellProps) {
     useState<Candidate | null>(null);
   const [toastError, setToastError] = useState<string | null>(null);
 
-  // Re-initialize model selection when the project changes (e.g. after project switch)
+  // Phase 3: "Continue with this" collapse + prompt pulse
+  const [candidatesCollapsed, setCandidatesCollapsed] = useState(false);
+  const [shouldPulsePrompt, setShouldPulsePrompt] = useState(false);
+  const promptWrapperRef = useRef<HTMLDivElement>(null);
+  const viewportHandle = useRef<WorkspaceViewportHandle>(null);
+
+  // Re-initialize model selection when the project changes
   useEffect(() => {
     const persisted = loadProjectModels(project.id);
     setSelectedModels(persisted ?? (project.models as ModelConfig[]));
   }, [project.id]);
-
 
   // Surface store errors as toasts
   useEffect(() => {
     if (error) setToastError(error);
   }, [error]);
 
+  // Phase 3: Reset collapse when new candidates arrive
+  useEffect(() => {
+    setCandidatesCollapsed(false);
+  }, [candidates]);
+
+  // Phase 3: In agent mode, auto-collapse when the store auto-selects a candidate
+  useEffect(() => {
+    if (mode === "agent" && selectedCandidateId) {
+      setCandidatesCollapsed(true);
+    }
+  }, [mode, selectedCandidateId]);
+
+  // Compute adjacent versions for the carousel
+  const currentIdx = versionHistory.findIndex((v) => v.id === activeVersionId);
+  const prevVersion = currentIdx > 0 ? versionHistory[currentIdx - 1] : null;
+  const nextVersion =
+    currentIdx >= 0 && currentIdx < versionHistory.length - 1
+      ? versionHistory[currentIdx + 1]
+      : null;
+
+  // Resolve accepted model label for a version (for peek previews)
+  const acceptedLabel = (
+    versionId: string,
+    selectedCandidateIdForVersion: string | null,
+  ) => {
+    if (!selectedCandidateIdForVersion) return null;
+    const vCandidates = candidatesByVersionId[versionId] ?? [];
+    return (
+      vCandidates.find((c) => c.id === selectedCandidateIdForVersion)
+        ?.modelLabel ?? null
+    );
+  };
+
+  const prevSummary = prevVersion
+    ? {
+        id: prevVersion.id,
+        prompt: prevVersion.prompt,
+        acceptedModelLabel: acceptedLabel(
+          prevVersion.id,
+          prevVersion.selectedCandidateId,
+        ),
+      }
+    : null;
+
+  const nextSummary = nextVersion
+    ? {
+        id: nextVersion.id,
+        prompt: nextVersion.prompt,
+        acceptedModelLabel: acceptedLabel(
+          nextVersion.id,
+          nextVersion.selectedCandidateId,
+        ),
+      }
+    : null;
+
   const winner = candidates.find((c) => c.id === selectedCandidateId);
   const others = candidates.filter((c) => c.id !== selectedCandidateId);
+  const unselectedCandidates = candidates.filter(
+    (c) => c.id !== selectedCandidateId,
+  );
 
   const isLoading = isGenerating || isEvaluating || isExecuting;
   const hasResults = candidates.length > 0;
@@ -103,16 +169,29 @@ export function WorkspaceShell({ project }: WorkspaceShellProps) {
     ? `NEXT PROMPT — ALL MODELS WILL BUILD FROM ${winner.modelLabel.toUpperCase()}'S OUTPUT`
     : "NEXT PROMPT";
 
+  const handleContinueWithThis = () => {
+    setCandidatesCollapsed(true);
+    setShouldPulsePrompt(true);
+    if (promptWrapperRef.current && viewportHandle.current) {
+      viewportHandle.current.scrollCurrentToElement(promptWrapperRef.current);
+    }
+    setTimeout(() => setShouldPulsePrompt(false), 800);
+  };
+
   return (
     <div className="min-h-screen bg-[var(--color-bg-tertiary)] p-4">
       <div className="max-w-[1080px] mx-auto flex flex-col gap-3">
         <TopBar projectName={storeProject?.name ?? project.name} />
 
         <div className="flex gap-3 items-start">
-          {/* LEFT: primary workflow — key triggers fade-in on version switch */}
-          <div
-            key={activeVersionId ?? "empty"}
-            className="flex-1 min-w-0 flex flex-col gap-3 vyra-fade-in"
+          {/* LEFT: workspace carousel viewport */}
+          <WorkspaceViewport
+            ref={viewportHandle}
+            prevVersion={prevSummary}
+            nextVersion={nextSummary}
+            onSwipePrev={() => store.navigateToAdjacentVersion("prev")}
+            onSwipeNext={() => store.navigateToAdjacentVersion("next")}
+            disabled={isLoading || isReverting}
           >
             {/* Loading / reverting state */}
             {(isLoading || isReverting) && (
@@ -128,22 +207,24 @@ export function WorkspaceShell({ project }: WorkspaceShellProps) {
               </Panel>
             )}
 
-            {/* Historical prompt — shown when viewing a version with a prompt */}
-            {!isLoading && !isReverting && hasResults && currentVersion?.prompt && (
-              <Panel padding="sm">
-                <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--color-text-tertiary)]">
-                  Prompt
-                </span>
-                <p className="text-[12px] text-[var(--color-text-secondary)] mt-1 leading-relaxed">
-                  {currentVersion.prompt}
-                </p>
-              </Panel>
-            )}
+            {/* Historical prompt */}
+            {!isLoading &&
+              !isReverting &&
+              hasResults &&
+              currentVersion?.prompt && (
+                <Panel padding="sm">
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--color-text-tertiary)]">
+                    Prompt
+                  </span>
+                  <p className="text-[12px] text-[var(--color-text-secondary)] mt-1 leading-relaxed">
+                    {currentVersion.prompt}
+                  </p>
+                </Panel>
+              )}
 
             {/* POST-SELECTION view */}
             {winner && (
               <>
-                {/* Selected output */}
                 <div>
                   <SectionHeader>
                     SELECTED OUTPUT — ITERATION {iterationCount}
@@ -152,14 +233,15 @@ export function WorkspaceShell({ project }: WorkspaceShellProps) {
                     candidate={winner}
                     isWinner
                     isActive={winner.id === activeCandidateId}
+                    forceCollapsed={candidatesCollapsed}
                   />
-                  {/* Winner action buttons */}
                   <div className="flex items-center gap-2 mt-2">
-                    <Button variant="primary" size="sm" onClick={() => {}}>
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      onClick={handleContinueWithThis}
+                    >
                       Continue with this
-                    </Button>
-                    <Button variant="ghost" size="sm" onClick={() => {}}>
-                      View full output
                     </Button>
                     <Button
                       variant="warning"
@@ -172,7 +254,6 @@ export function WorkspaceShell({ project }: WorkspaceShellProps) {
                   </div>
                 </div>
 
-                {/* Evaluator analysis */}
                 {evaluationSummary && (
                   <>
                     <SectionHeader>WHAT CHANGED — AI ANALYSIS</SectionHeader>
@@ -184,7 +265,6 @@ export function WorkspaceShell({ project }: WorkspaceShellProps) {
                   </>
                 )}
 
-                {/* Other outputs */}
                 {others.length > 0 && (
                   <div>
                     <SectionHeader>
@@ -199,6 +279,7 @@ export function WorkspaceShell({ project }: WorkspaceShellProps) {
                           isActive={c.id === activeCandidateId}
                           showOverride
                           onSelect={() => setOverridingCandidate(c)}
+                          forceCollapsed={candidatesCollapsed}
                         />
                       ))}
                     </div>
@@ -282,21 +363,34 @@ export function WorkspaceShell({ project }: WorkspaceShellProps) {
             )}
 
             {/* Next prompt */}
-            <div>
+            <div className="mt-auto">
               {hasResults && <SectionHeader>{nextPromptLabel}</SectionHeader>}
-              <PromptInput
-                modelIds={selectedModels.map((m) => m.id)}
-                currentIteration={iterationCount}
-                onBeforeSend={() => saveProjectModels(project.id, selectedModels)}
-                modelSelector={
-                  <ModelSelector
-                    selected={selectedModels}
-                    onChange={setSelectedModels}
-                  />
-                }
-              />
+              <div
+                ref={promptWrapperRef}
+                data-testid="prompt-input-wrapper"
+                className={[
+                  "rounded-panel transition-shadow duration-300",
+                  shouldPulsePrompt
+                    ? "ring-2 ring-[var(--color-accent,var(--color-primary-blue))]"
+                    : "",
+                ].join(" ")}
+              >
+                <PromptInput
+                  modelIds={selectedModels.map((m) => m.id)}
+                  currentIteration={iterationCount}
+                  onBeforeSend={() =>
+                    saveProjectModels(project.id, selectedModels)
+                  }
+                  modelSelector={
+                    <ModelSelector
+                      selected={selectedModels}
+                      onChange={setSelectedModels}
+                    />
+                  }
+                />
+              </div>
             </div>
-          </div>
+          </WorkspaceViewport>
 
           {/* RIGHT: version tree rail */}
           <div className="w-56 flex-shrink-0 flex flex-col gap-3">

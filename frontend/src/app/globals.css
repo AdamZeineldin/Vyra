@@ -58,7 +58,6 @@ body {
   background: #555555;
 }
 
-/* Version-switch fade-in used when activeVersionId changes */
 @keyframes vyra-fade-in {
   from {
     opacity: 0;
