@@ -102,8 +102,16 @@ jest.mock("@/components/version-tree/tree-minimap", () => ({
   TreeMinimap: () => <div data-testid="tree-minimap" />,
 }));
 
-jest.mock("@/components/version-tree/iteration-panel", () => ({
-  IterationPanel: () => <div data-testid="iteration-panel" />,
+jest.mock("@/components/github/github-modal", () => ({
+  GitHubModal: () => <div data-testid="github-modal" />,
+}));
+
+jest.mock("@/lib/modes", () => ({
+  MODES: [
+    { id: "user", label: "User", description: "Manual selection" },
+    { id: "agent", label: "Agent", description: "Auto selection" },
+    { id: "hybrid", label: "Hybrid", description: "Mixed" },
+  ],
 }));
 
 jest.mock("@/lib/model-persistence", () => ({
