@@ -13,7 +13,7 @@ interface ProjectStore {
 
   loadProjects: (userId: string) => Promise<void>;
   createProject: (name: string, userId: string) => Promise<Project | null>;
-  deleteProject: (id: string) => Promise<void>;
+  deleteProject: (id: string, userId: string) => Promise<void>;
 }
 
 export const useProjectStore = create<ProjectStore>((set) => ({
@@ -52,9 +52,9 @@ export const useProjectStore = create<ProjectStore>((set) => ({
     }
   },
 
-  deleteProject: async (id) => {
+  deleteProject: async (id, userId) => {
     try {
-      await fetch(`${BACKEND_URL}/projects/${id}`, { method: "DELETE" });
+      await fetch(`${BACKEND_URL}/projects/${id}?user_id=${encodeURIComponent(userId)}`, { method: "DELETE" });
       set((state) => ({
         projects: state.projects.filter((p) => p.id !== id),
       }));

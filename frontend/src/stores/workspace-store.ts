@@ -27,6 +27,7 @@ interface WorkspaceStore {
   isEvaluating: boolean;
   isExecuting: boolean;
   isReverting: boolean;
+  isLoadingOverview: boolean;
   iterationCount: number;
   prompt: string;
   error: string | null;
@@ -38,6 +39,7 @@ interface WorkspaceStore {
   setProject: (project: Project) => void;
   setMode: (mode: WorkspaceMode) => void;
   setPrompt: (prompt: string) => void;
+  setLoadingOverview: (loading: boolean) => void;
 
   generate: (modelIds: string[]) => Promise<void>;
   executeAll: (runtime: string) => Promise<void>;
@@ -60,6 +62,7 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
   isEvaluating: false,
   isExecuting: false,
   isReverting: false,
+  isLoadingOverview: false,
   iterationCount: 0,
   prompt: "",
   error: null,
@@ -71,6 +74,7 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
   setProject: (project) => set({ project }),
   setMode: (mode) => set({ mode }),
   setPrompt: (prompt) => set({ prompt }),
+  setLoadingOverview: (loading) => set({ isLoadingOverview: loading }),
 
   generate: async (modelIds) => {
     const { project, currentVersion, prompt, mode } = get();

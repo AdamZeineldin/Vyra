@@ -203,7 +203,7 @@ export function ProjectSidebar() {
                   >
                     <button
                       onClick={() => {
-                        deleteProject(p.id);
+                        deleteProject(p.id, getUserId(session));
                         setConfirmDeleteId(null);
                       }}
                       className="text-[10px] text-warning-text hover:underline font-medium"

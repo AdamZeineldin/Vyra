@@ -53,8 +53,8 @@ async def get_project(project_id: str, user_id: str = Query(...)):
 
 
 @router.delete("/{project_id}", status_code=204)
-async def delete_project(project_id: str):
+async def delete_project(project_id: str, user_id: str = Query(...)):
     doc = await ProjectDoc.get(PydanticObjectId(project_id))
-    if not doc:
+    if not doc or doc.user_id != user_id:
         raise HTTPException(status_code=404, detail="Project not found")
     await doc.delete()
