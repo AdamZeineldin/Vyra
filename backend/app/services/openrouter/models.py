@@ -13,7 +13,7 @@ AVAILABLE_MODELS: list[ModelConfig] = [
     ModelConfig(id="openai/gpt-4o-mini", label="GPT-4o Mini", provider="OpenAI"),
     ModelConfig(id="deepseek/deepseek-chat", label="DeepSeek V3", provider="DeepSeek"),
     ModelConfig(id="meta-llama/llama-3.1-70b-instruct", label="Llama 3.1 70B", provider="Meta"),
-    ModelConfig(id="x-ai/grok-beta", label="Grok Beta", provider="xAI"),
+    ModelConfig(id="x-ai/grok-3-mini-beta", label="Grok 3 Mini", provider="xAI"),
 ]
 
 _MODEL_INDEX: dict[str, ModelConfig] = {m.id: m for m in AVAILABLE_MODELS}

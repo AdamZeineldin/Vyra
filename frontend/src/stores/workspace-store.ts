@@ -268,13 +268,11 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
       }
     }
 
-      // Always auto-execute + evaluate + compare so scores are available immediately
-      await get().executeAll(project.runtime ?? "node");
-      await get().evaluateAll();
-      get().fetchComparison().catch(() => {});
-
-      // In agent/hybrid mode: auto-select the winner
+      // In agent/hybrid mode: auto-execute, evaluate, compare, and select
       if (mode === "agent" || mode === "hybrid") {
+        await get().executeAll(project.runtime ?? "node");
+        await get().evaluateAll();
+        get().fetchComparison().catch(() => {});
         const { evaluationSummary } = get();
         if (
           evaluationSummary?.bestCandidateId &&
@@ -283,6 +281,7 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
           await get().selectCandidate(evaluationSummary.bestCandidateId);
         }
       }
+      // In user mode: just generate — user triggers evaluation manually
     } catch (e) {
       set({ error: e instanceof Error ? e.message : "Generation failed" });
     } finally {

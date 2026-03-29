@@ -156,6 +156,23 @@ export function WorkspaceShell({ project }: WorkspaceShellProps) {
     prevSelectedRef.current = null;
   }, [candidates]);
 
+  // Sync model selection from candidates — ensures next prompt defaults to
+  // whatever models the previous prompt used, not the project defaults.
+  useEffect(() => {
+    if (candidates.length === 0) return;
+    const seen = new Set<string>();
+    const modelsFromCandidates: ModelConfig[] = [];
+    for (const c of candidates) {
+      if (!c.modelId || seen.has(c.modelId)) continue;
+      seen.add(c.modelId);
+      modelsFromCandidates.push({ id: c.modelId, label: c.modelLabel, provider: "" });
+    }
+    if (modelsFromCandidates.length > 0) {
+      setSelectedModels(modelsFromCandidates);
+      saveProjectModels(project.id, modelsFromCandidates);
+    }
+  }, [candidates, project.id]);
+
   // Phase 3: Auto-collapse on fresh selection in agent/hybrid mode.
   // prevSelectedRef guards against auto-collapsing when navigating to
   // a historical version that already has a winner.
@@ -470,7 +487,10 @@ export function WorkspaceShell({ project }: WorkspaceShellProps) {
                   modelSelector={
                     <ModelSelector
                       selected={selectedModels}
-                      onChange={setSelectedModels}
+                      onChange={(models) => {
+                        setSelectedModels(models);
+                        saveProjectModels(project.id, models);
+                      }}
                     />
                   }
                 />

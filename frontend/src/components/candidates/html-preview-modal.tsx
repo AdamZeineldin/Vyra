@@ -61,10 +61,14 @@ export function HtmlPreviewModal({ candidate, onClose }: HtmlPreviewModalProps) 
   }, [onClose]);
 
   const openInNewTab = useCallback(() => {
-    // Use a data: URL instead of a blob: URL so the new tab gets a null origin
-    // and cannot make credentialed requests to the application.
-    const dataUrl = `data:text/html;charset=utf-8,${encodeURIComponent(bundled)}`;
-    window.open(dataUrl, "_blank", "noopener,noreferrer");
+    const blob = new Blob([bundled], { type: "text/html;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.target = "_blank";
+    a.rel = "noopener";
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
   }, [bundled]);
 
   return (
@@ -90,14 +94,13 @@ export function HtmlPreviewModal({ candidate, onClose }: HtmlPreviewModalProps) 
               {candidate.modelLabel} — preview
             </span>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
             <button
               onClick={openInNewTab}
-              title="Open in new tab"
-              aria-label="Open in new tab"
-              className="text-[#555] hover:text-[#aaa] transition-colors"
+              className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded bg-blue-900/40 border border-blue-800/60 text-blue-400 hover:bg-blue-900/70 transition-colors"
             >
-              <ExternalLink size={13} />
+              <ExternalLink size={10} />
+              Open in new tab
             </button>
             <button
               onClick={onClose}
