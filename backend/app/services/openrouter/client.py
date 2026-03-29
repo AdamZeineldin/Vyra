@@ -93,6 +93,17 @@ OVERVIEW_SYSTEM_PROMPT = (
     "Do not include raw code snippets. Avoid unexplained jargon."
 )
 
+COMPARISON_OVERVIEW_SYSTEM_PROMPT = (
+    "You are a concise technical analyst comparing AI-generated code solutions. "
+    "Write a BRIEF comparison (3 sections max, 2-3 bullet points each) for one specific model's output. "
+    "Cover only: (1) what changed from the previous version, (2) key differences vs the other models, "
+    "(3) tradeoffs of selecting this model. "
+    "If there is no previous version, skip section 1. "
+    "Be specific and direct — mention concrete implementation choices, not vague descriptions. "
+    "Do NOT summarize what the code does. Do NOT start with preamble. "
+    "Format in Markdown with ## headings for each section."
+)
+
 
 async def get_project_title(prompt: str) -> str:
     """Call Gemini to turn a user prompt into a short project title (2-4 words)."""
@@ -188,6 +199,70 @@ async def get_code_overview(files: dict) -> str:
             raise ValueError(f"Could not generate overview: {exc}") from exc
 
 
+async def get_comparison_overview(
+    prompt: str,
+    candidate_files: dict,
+    candidate_model_label: str,
+    sibling_candidates: list[dict],
+    parent_files: dict | None,
+) -> str:
+    """Generate a cached per-candidate comparison overview for the selected candidate."""
+    api_key = os.getenv("OPENROUTER_API_KEY", "")
+    if not api_key:
+        raise ValueError("OPENROUTER_API_KEY environment variable not set")
+
+    def _format_files(files: dict) -> str:
+        parts = []
+        for path, entry in files.items():
+            content = entry.get("content", "") if isinstance(entry, dict) else getattr(entry, "content", "")
+            parts.append(f"**{path}**\n```\n{content[:800]}\n```")
+        return "\n\n".join(parts) or "(empty)"
+
+    sections = [f"**Prompt:** {prompt}\n"]
+
+    if parent_files:
+        sections.append(f"**Previous version files:**\n{_format_files(parent_files)}")
+
+    sections.append(f"**{candidate_model_label} (this candidate):**\n{_format_files(candidate_files)}")
+
+    for sib in sibling_candidates:
+        sections.append(f"**{sib['model_label']}:**\n{_format_files(sib['files'])}")
+
+    user_message = (
+        f"Compare the output from **{candidate_model_label}** against the other models and the previous version.\n\n"
+        + "\n\n---\n\n".join(sections)
+    )
+
+    async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
+        try:
+            response = await client.post(
+                f"{OPENROUTER_BASE_URL}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                    "HTTP-Referer": os.getenv("APP_URL", "http://localhost:3000"),
+                    "X-Title": "YHack Iterative Coder",
+                },
+                json={
+                    "model": OVERVIEW_MODEL,
+                    "messages": [
+                        {"role": "system", "content": COMPARISON_OVERVIEW_SYSTEM_PROMPT},
+                        {"role": "user", "content": user_message},
+                    ],
+                    "max_tokens": 512,
+                    "temperature": 0.3,
+                },
+                timeout=REQUEST_TIMEOUT,
+            )
+            response.raise_for_status()
+            data = response.json()
+            return data["choices"][0]["message"]["content"]
+        except httpx.HTTPStatusError as exc:
+            raise ValueError(f"OpenRouter request failed: {exc.response.status_code}") from exc
+        except Exception as exc:
+            raise ValueError(f"Could not generate comparison overview: {exc}") from exc
+
+
 COMPARISON_SYSTEM_PROMPT = (
     "You are a senior code reviewer comparing multiple AI-generated solutions to the same prompt. "
     "You are given the original prompt, each model's output with its evaluation scores, and execution results. "
@@ -204,7 +279,7 @@ async def get_comparative_overview(
     candidates_data: list[dict],
     prompt: str,
 ) -> str:
-    """Generate a comparative analysis of multiple candidate outputs.
+    """Generate a comparative analysis of multiple candidate outputs (used by /overview/compare).
 
     Each entry in candidates_data should have:
       model_label, total_score, scores (dict), reasoning, file_count, execution_summary

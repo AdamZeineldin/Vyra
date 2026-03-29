@@ -15,17 +15,37 @@ const BACKEND_URL =
 function LoadingScreen() {
   return (
     <div className="min-h-screen bg-[var(--color-bg-tertiary)] flex flex-col items-center justify-center gap-3">
-      <Image src="/logo.png" alt="Vyra" width={40} height={40} className="opacity-40 animate-pulse" />
-      <span className="text-[11px] text-[var(--color-text-tertiary)]">Loading project…</span>
+      <Image
+        src="/logo.png"
+        alt="Vyra"
+        width={40}
+        height={40}
+        className="opacity-40 animate-pulse"
+      />
+      <span className="text-[11px] text-[var(--color-text-tertiary)]">
+        Loading project…
+      </span>
     </div>
   );
 }
 
-function ErrorScreen({ message, onBack }: { message: string; onBack: () => void }) {
+function ErrorScreen({
+  message,
+  onBack,
+}: {
+  message: string;
+  onBack: () => void;
+}) {
   return (
     <div className="min-h-screen bg-[var(--color-bg-tertiary)] flex items-center justify-center">
       <div className="text-center max-w-sm">
-        <Image src="/logo.png" alt="Vyra" width={32} height={32} className="opacity-30 mx-auto mb-4" />
+        <Image
+          src="/logo.png"
+          alt="Vyra"
+          width={32}
+          height={32}
+          className="opacity-30 mx-auto mb-4"
+        />
         <p className="text-[12px] text-warning-text mb-1">{message}</p>
         <p className="text-[11px] text-[var(--color-text-tertiary)] mb-4">
           The project may have been deleted or the server is unreachable.
@@ -105,7 +125,14 @@ export default function ProjectPage() {
       });
 
     return () => controller.abort();
-  }, [id, status, resetWorkspace, setProject, loadVersionTree, navigateToVersion]);
+  }, [
+    id,
+    status,
+    resetWorkspace,
+    setProject,
+    loadVersionTree,
+    navigateToVersion,
+  ]);
 
   // Auto-generate from URL params once project is loaded
   useEffect(() => {
@@ -129,7 +156,13 @@ export default function ProjectPage() {
   }, [project, searchParams, id, setPrompt, generate, router]);
 
   if (loading) return <LoadingScreen />;
-  if (error || !project) return <ErrorScreen message={error ?? "Project not found"} onBack={() => router.push("/")} />;
+  if (error || !project)
+    return (
+      <ErrorScreen
+        message={error ?? "Project not found"}
+        onBack={() => router.push("/")}
+      />
+    );
 
   return <WorkspaceShell project={project} />;
 }

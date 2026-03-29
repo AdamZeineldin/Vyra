@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
+import ReactMarkdown from "react-markdown";
 import { ChevronDown, ChevronUp, Play, Loader2, GitCommitHorizontal } from "lucide-react";
 import type { Candidate } from "@/lib/types";
 import { useWorkspaceStore } from "@/stores/workspace-store";
@@ -14,6 +15,7 @@ import { CodePreview } from "./code-preview";
 import { ConsoleModal } from "./console-modal";
 import { StdinModal } from "./stdin-modal";
 import { GitHubModal } from "@/components/github/github-modal";
+import { BACKEND_URL } from "@/lib/config";
 
 const SCORE_LABELS: Record<string, string> = {
   correctness: "Correct",
@@ -30,8 +32,6 @@ function needsStdin(candidate: Candidate): boolean {
     STDIN_PATTERNS.some((p) => f.content.includes(p))
   );
 }
-
-import { BACKEND_URL } from "@/lib/config";
 
 function StreamingView({ content }: { content: string }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -67,18 +67,19 @@ export function CandidateCard({
   highlightIfRecommended,
   forceCollapsed = false,
 }: CandidateCardProps) {
-  const { setLoadingOverview } = useWorkspaceStore();
+  const { project, candidates: allCandidates } = useWorkspaceStore();
   const cardRef = useRef<HTMLDivElement>(null);
   const [selectedFile, setSelectedFile] = useState<string | null>(
     Object.keys(candidate.files)[0] ?? null
   );
   const [expanded, setExpanded] = useState(isWinner ?? false);
   const [userExpandedOverride, setUserExpandedOverride] = useState(false);
-  const [overview, setOverview] = useState<string | null>(null);
-  const [isLoadingOverview, setIsLoadingOverview] = useState(false);
-  const lastFetchedId = useRef<string | null>(null);
   const [showScores, setShowScores] = useState(false);
+  const [overview, setOverview] = useState<string | null>(null);
+  const [overviewStatus, setOverviewStatus] = useState<"not_started" | "generating" | "ready">("not_started");
   const [githubModalOpen, setGithubModalOpen] = useState(false);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const hasSeenGenerating = useRef(false);
   const [isRunning, setIsRunning] = useState(false);
   const [consoleResult, setConsoleResult] = useState<{
     stdout: string; stderr: string; exit_code: number; duration_ms: number; timed_out: boolean;
@@ -86,22 +87,41 @@ export function CandidateCard({
   const [showStdinModal, setShowStdinModal] = useState(false);
   const runtime = useWorkspaceStore((s) => s.project?.runtime ?? "python");
 
+  // Poll for comparison overview — only for the selected (winner) card
   useEffect(() => {
-    if (!expanded) return;
-    if (lastFetchedId.current === candidate.id) return;
-    lastFetchedId.current = candidate.id;
-    setOverview(null);
-    setIsLoadingOverview(true);
-    setLoadingOverview(true);
-    fetch(`${BACKEND_URL}/overview/candidate/${candidate.id}`)
-      .then((res) => res.ok ? res.json() : Promise.reject())
-      .then((data) => setOverview(data.overview as string))
-      .catch(() => setOverview("Could not load AI overview."))
-      .finally(() => {
-        setIsLoadingOverview(false);
-        setLoadingOverview(false);
-      });
-  }, [expanded, candidate.id, setLoadingOverview]);
+    if (!isWinner || !expanded) return;
+    hasSeenGenerating.current = false;
+
+    const fetchOverview = async () => {
+      try {
+        const res = await fetch(`${BACKEND_URL}/overview/candidate/${candidate.id}`);
+        if (!res.ok) return;
+        const data = await res.json() as { overview: string | null; status: string };
+        setOverviewStatus(data.status as "not_started" | "generating" | "ready");
+        if (data.status === "generating") hasSeenGenerating.current = true;
+        if (data.overview) {
+          setOverview(data.overview);
+          if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+        } else if (data.status === "not_started" && hasSeenGenerating.current) {
+          // generation ended without a result — stop polling
+          if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+        }
+      } catch {
+        // ignore fetch errors during polling
+      }
+    };
+
+    fetchOverview();
+    pollRef.current = setInterval(fetchOverview, 3000);
+
+    return () => {
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isWinner, expanded, candidate.id]);
 
   // Scroll into view when this card becomes active via tree navigation
   useEffect(() => {
@@ -275,24 +295,45 @@ export function CandidateCard({
 
       {/* Expanded content */}
       {!candidate.streaming && isVisiblyExpanded && (
-        <div className="flex gap-3 mt-3">
-          <div className="w-40 flex-shrink-0">
-            <FileExplorer
-              files={candidate.files}
-              selectedPath={selectedFile ?? undefined}
-              onSelectFile={setSelectedFile}
-            />
-          </div>
-          <div className="flex-1 min-w-0">
-            {selectedFile && (
-              <CodePreview
-                content={previewContent}
-                filename={selectedFile}
-                language={previewLanguage}
-                maxLines={12}
+        <div>
+          <div className="flex gap-3 mt-3">
+            <div className="w-40 flex-shrink-0">
+              <FileExplorer
+                files={candidate.files}
+                selectedPath={selectedFile ?? undefined}
+                onSelectFile={setSelectedFile}
               />
-            )}
+            </div>
+            <div className="flex-1 min-w-0">
+              {selectedFile && (
+                <CodePreview
+                  content={previewContent}
+                  filename={selectedFile}
+                  language={previewLanguage}
+                  maxLines={12}
+                />
+              )}
+            </div>
           </div>
+
+          {/* Comparison Overview — winner only, and only when multiple models ran */}
+          {isWinner && allCandidates.length > 1 && (
+            <div className="mt-3 pt-3 border-t border-[var(--color-border-secondary)]">
+              <div className="text-[10px] font-medium text-[var(--color-text-tertiary)] uppercase tracking-wide mb-1.5">
+                Why this model?
+              </div>
+              {overviewStatus === "generating" || (overviewStatus === "not_started" && !overview) ? (
+                <div className="flex items-center gap-1.5 text-[11px] text-[var(--color-text-tertiary)]">
+                  <Loader2 size={10} className="animate-spin flex-shrink-0" />
+                  Analyzing differences…
+                </div>
+              ) : overview ? (
+                <div className="prose-overview text-[11px] text-[var(--color-text-secondary)] leading-relaxed [&_h2]:text-[11px] [&_h2]:font-semibold [&_h2]:text-[var(--color-text-primary)] [&_h2]:mt-2.5 [&_h2]:mb-1 [&_p]:mb-1.5 [&_ul]:list-disc [&_ul]:pl-4 [&_ul]:mb-1.5 [&_li]:mb-0.5">
+                  <ReactMarkdown>{overview}</ReactMarkdown>
+                </div>
+              ) : null}
+            </div>
+          )}
         </div>
       )}
 
@@ -327,6 +368,15 @@ export function CandidateCard({
       )}
     </div>
 
+    {githubModalOpen && project && (
+      <GitHubModal
+        mode="commit"
+        files={candidate.files}
+        projectName={project.name}
+        projectId={project.id}
+        onClose={() => setGithubModalOpen(false)}
+      />
+    )}
     </>
   );
 }
