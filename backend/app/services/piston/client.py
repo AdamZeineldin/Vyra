@@ -1,11 +1,18 @@
 """Piston API client — executes code via the Piston remote execution engine."""
 from __future__ import annotations
 
+import asyncio
+import logging
 import os
+import signal
+import shutil
+import tempfile
 import time
 from typing import TYPE_CHECKING
 
 import httpx
+
+logger = logging.getLogger(__name__)
 
 from app.models.domain import ExecutionResult, FileEntry
 
@@ -13,6 +20,12 @@ if TYPE_CHECKING:
     from app.services.piston.sandbox import ExecutionRequest
 
 FileMap = dict[str, FileEntry]
+
+# Maps the ExecutionRequest.runtime field to the Piston language name.
+RUNTIME_MAP: dict[str, str] = {
+    "python": "python",
+    "node": "javascript",
+}
 
 # Maps file extension → (piston language name, piston version)
 EXT_TO_RUNTIME: dict[str, tuple[str, str]] = {
@@ -193,11 +206,121 @@ async def execute_with_piston(req: "ExecutionRequest") -> ExecutionResult:
             timed_out=True,
         )
     except Exception as exc:
-        duration_ms = int((time.monotonic() - start) * 1000)
+        logger.warning("Piston unavailable (%s) — falling back to subprocess", exc)
+        return await _execute_with_subprocess(req)
+
+
+async def _execute_with_subprocess(req: "ExecutionRequest") -> ExecutionResult:
+    """Fallback executor using local subprocess when Piston is unavailable.
+
+    Supports Python and Node/JavaScript only.  Other languages return a
+    descriptive error rather than silently failing.
+
+    This fallback is DISABLED by default and must be explicitly enabled via
+    the ``ALLOW_SUBPROCESS_FALLBACK=true`` environment variable.  When
+    disabled the function returns a safe error result without spawning any
+    process.
+    """
+    allow_fallback = os.getenv("ALLOW_SUBPROCESS_FALLBACK", "").strip().lower() in (
+        "1", "true", "yes"
+    )
+    if not allow_fallback:
         return ExecutionResult(
             stdout="",
-            stderr=f"Piston unavailable: {exc}",
-            exit_code=127,
-            duration_ms=duration_ms,
+            stderr=(
+                "Subprocess fallback is disabled. "
+                "Start the Piston Docker container or set ALLOW_SUBPROCESS_FALLBACK=true."
+            ),
+            exit_code=1,
+            duration_ms=0,
             timed_out=False,
         )
+
+    code_files = {p: e for p, e in req.files.items() if _is_code_file(p)}
+    if not code_files:
+        return ExecutionResult(
+            stdout="",
+            stderr="No executable code files found.",
+            exit_code=1,
+            duration_ms=0,
+            timed_out=False,
+        )
+
+    language, _version, entry_path = _detect_language_and_entry(code_files)
+
+    if language == "python":
+        cmd_prefix = ["python3"]
+    elif language in ("javascript", "typescript"):
+        cmd_prefix = ["node"] if language == "javascript" else ["npx", "tsx"]
+    else:
+        return ExecutionResult(
+            stdout="",
+            stderr=(
+                f"Subprocess fallback does not support {language}. "
+                "Start the Piston Docker container to run this language."
+            ),
+            exit_code=1,
+            duration_ms=0,
+            timed_out=False,
+        )
+
+    tmpdir = tempfile.mkdtemp(prefix="vyra_exec_")
+    try:
+        for path, entry in code_files.items():
+            dest = os.path.join(tmpdir, path.lstrip("/"))
+            os.makedirs(os.path.dirname(dest), exist_ok=True)
+            with open(dest, "w", encoding="utf-8") as fh:
+                fh.write(entry.content)
+
+        entry_rel = entry_path.lstrip("/")
+        cmd = [*cmd_prefix, entry_rel]
+        start = time.monotonic()
+
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=tmpdir,
+                start_new_session=True,
+            )
+            stdin_bytes = req.stdin.encode("utf-8") if req.stdin else b""
+            stdout_bytes, stderr_bytes = await asyncio.wait_for(
+                proc.communicate(input=stdin_bytes),
+                timeout=float(req.timeout_seconds),
+            )
+            duration_ms = int((time.monotonic() - start) * 1000)
+            return ExecutionResult(
+                stdout=stdout_bytes.decode(errors="replace"),
+                stderr=stderr_bytes.decode(errors="replace"),
+                exit_code=proc.returncode if proc.returncode is not None else 0,
+                duration_ms=duration_ms,
+                timed_out=False,
+            )
+
+        except asyncio.TimeoutError:
+            try:
+                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            except (ProcessLookupError, OSError):
+                pass
+            duration_ms = int((time.monotonic() - start) * 1000)
+            return ExecutionResult(
+                stdout="",
+                stderr="Execution timed out",
+                exit_code=1,
+                duration_ms=duration_ms,
+                timed_out=True,
+            )
+
+        except FileNotFoundError as exc:
+            return ExecutionResult(
+                stdout="",
+                stderr=f"Runtime not found: {exc}. Ensure python3/node is installed and on PATH.",
+                exit_code=127,
+                duration_ms=0,
+                timed_out=False,
+            )
+
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)

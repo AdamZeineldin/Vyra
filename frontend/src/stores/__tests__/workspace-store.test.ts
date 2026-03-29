@@ -261,17 +261,26 @@ describe("selectCandidate activeCandidateId sync", () => {
 // Phase 7: Historical prompt display — generate preserves prompt in currentVersion
 // ---------------------------------------------------------------------------
 
-describe("generate — preserves prompt in currentVersion", () => {
+// Helper: build a mock SSE ReadableStream from an array of event objects
+function mockSSEStream(events: Record<string, unknown>[]): ReadableStream<Uint8Array> {
+  const encoder = new TextEncoder();
+  const lines = events.map((e) => `data: ${JSON.stringify(e)}\n`).join("\n") + "\n";
+  return new ReadableStream({
+    start(controller) {
+      controller.enqueue(encoder.encode(lines));
+      controller.close();
+    },
+  });
+}
+
+describe("generate — preserves prompt in currentVersion (SSE)", () => {
   beforeEach(() => {
-    // Mock fetch for generate
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
-      json: () =>
-        Promise.resolve({
-          version_id: "v-new",
-          project_name: null,
-          candidates: [],
-        }),
+      body: mockSSEStream([
+        { type: "version_created", version_id: "v-new" },
+        { type: "done", version_id: "v-new" },
+      ]),
     });
   });
 
@@ -317,7 +326,6 @@ describe("generate — preserves prompt in currentVersion", () => {
 
     await useWorkspaceStore.getState().generate([]);
 
-    // Input prompt is cleared after submission (ready for next prompt)
     expect(useWorkspaceStore.getState().prompt).toBe("");
   });
 

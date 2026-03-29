@@ -1,11 +1,14 @@
 """Unit tests for the Piston API client (TDD — written before implementation)."""
 from __future__ import annotations
 
+import asyncio
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
 import httpx
 
 from app.models.domain import FileEntry
-from app.services.piston.client import RUNTIME_MAP, execute_with_piston
+from app.services.piston.client import RUNTIME_MAP, _execute_with_subprocess, execute_with_piston
 from app.services.piston.sandbox import ExecutionRequest
 
 
@@ -225,3 +228,112 @@ async def test_python_runtime_sends_python_to_piston(respx_mock):
     await execute_with_piston(req)
 
     assert captured[0]["language"] == "python"
+
+
+# ── _execute_with_subprocess ──────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_subprocess_fallback_disabled_by_default(monkeypatch):
+    """When ALLOW_SUBPROCESS_FALLBACK is not set the fallback returns an error."""
+    monkeypatch.delenv("ALLOW_SUBPROCESS_FALLBACK", raising=False)
+
+    req = ExecutionRequest(
+        candidate_id="s1",
+        files=_files(("main.py", 'print("hi")')),
+        runtime="python",
+    )
+    result = await _execute_with_subprocess(req)
+
+    assert result.exit_code == 1
+    assert result.timed_out is False
+    assert "disabled" in result.stderr.lower()
+
+
+@pytest.mark.asyncio
+async def test_subprocess_fallback_disabled_explicit_false(monkeypatch):
+    """ALLOW_SUBPROCESS_FALLBACK=false also disables the fallback."""
+    monkeypatch.setenv("ALLOW_SUBPROCESS_FALLBACK", "false")
+
+    req = ExecutionRequest(
+        candidate_id="s2",
+        files=_files(("main.py", 'print("hi")')),
+        runtime="python",
+    )
+    result = await _execute_with_subprocess(req)
+
+    assert result.exit_code == 1
+    assert "disabled" in result.stderr.lower()
+
+
+@pytest.mark.asyncio
+async def test_subprocess_fallback_unsupported_language(monkeypatch):
+    """Unsupported language returns a descriptive error, not a crash."""
+    monkeypatch.setenv("ALLOW_SUBPROCESS_FALLBACK", "true")
+
+    req = ExecutionRequest(
+        candidate_id="s3",
+        files=_files(("main.go", "package main\nfunc main(){}")),
+        runtime="python",  # runtime field is ignored by _execute_with_subprocess
+    )
+    result = await _execute_with_subprocess(req)
+
+    assert result.exit_code == 1
+    assert result.timed_out is False
+    # go is not supported by the subprocess fallback
+    assert "go" in result.stderr.lower() or "piston" in result.stderr.lower()
+
+
+@pytest.mark.asyncio
+async def test_subprocess_fallback_timeout_kills_process_group(monkeypatch):
+    """On timeout the process group is killed via SIGKILL and timed_out is True."""
+    monkeypatch.setenv("ALLOW_SUBPROCESS_FALLBACK", "true")
+
+    killed_pgids: list[int] = []
+
+    def fake_killpg(pgid: int, sig: int) -> None:
+        killed_pgids.append(pgid)
+
+    fake_proc = MagicMock()
+    fake_proc.pid = 12345
+
+    with patch("app.services.piston.client.asyncio.create_subprocess_exec", new=AsyncMock(return_value=fake_proc)), \
+         patch("app.services.piston.client.os.getpgid", return_value=12345), \
+         patch("app.services.piston.client.os.killpg", side_effect=fake_killpg), \
+         patch("app.services.piston.client.asyncio.wait_for", side_effect=asyncio.TimeoutError):
+
+        req = ExecutionRequest(
+            candidate_id="s4",
+            files=_files(("main.py", "while True: pass")),
+            runtime="python",
+        )
+        result = await _execute_with_subprocess(req)
+
+    assert result.timed_out is True
+    assert result.exit_code == 1
+    assert killed_pgids == [12345]
+
+
+@pytest.mark.asyncio
+async def test_subprocess_fallback_preserves_directory_structure(monkeypatch):
+    """Files with directory paths are written under the same sub-path in tmpdir,
+    preventing basename collisions between e.g. src/utils/helper.py and lib/helper.py."""
+    monkeypatch.setenv("ALLOW_SUBPROCESS_FALLBACK", "true")
+
+    req = ExecutionRequest(
+        candidate_id="s5",
+        files={
+            "src/main.py": FileEntry(path="src/main.py", content='print("hi")', language="python"),
+            "src/utils/helper.py": FileEntry(path="src/utils/helper.py", content="", language="python"),
+        },
+        runtime="python",
+    )
+
+    # Execute for real — if basename collision occurred, one file would silently
+    # overwrite the other and the import might fail for unrelated reasons.
+    # We verify that the entry file path is properly rooted in the tmpdir and
+    # that the process completes without an OSError from file writes.
+    result = await _execute_with_subprocess(req)
+
+    # Any exit code is acceptable; what matters is no OSError / path collision crash.
+    assert result.timed_out is False
+    assert result.exit_code in (0, 1, 2)

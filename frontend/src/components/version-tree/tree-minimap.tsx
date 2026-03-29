@@ -18,19 +18,24 @@ function CandidateRow({
   isLast,
   isWinner,
   isActive,
+  hasWinner,
   onNavigate,
 }: {
   candidate: Candidate;
   isLast: boolean;
   isWinner: boolean;
   isActive: boolean;
+  hasWinner: boolean;
   onNavigate: (candidateId: string) => void;
 }) {
-  // Pill style: winner=green, active=blue, normal=brand color
+  // Pill style: winner=green, active=blue, rejected=gray, normal=brand color
+  const isRejected = hasWinner && !isWinner && !isActive;
   const pillStyle = isActive
     ? "bg-[var(--color-primary-blue)]/15 text-[var(--color-primary-blue)] border border-[var(--color-primary-blue)]/50"
     : isWinner
     ? "bg-[var(--color-winner)]/15 text-[var(--color-winner)] border border-[var(--color-winner)]/40"
+    : isRejected
+    ? "bg-[var(--color-bg-secondary)] text-[var(--color-text-tertiary)] border border-[var(--color-border-tertiary)]"
     : getModelTreePillStyle(candidate.modelId ?? "");
 
   return (
@@ -49,7 +54,8 @@ function CandidateRow({
           "inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[9px] font-medium",
           "transition-all duration-smooth ease-spring",
           pillStyle,
-          !isWinner && !isActive ? "opacity-60 group-hover:opacity-90" : "",
+          isRejected ? "opacity-40 group-hover:opacity-70 line-through" : "",
+          !isWinner && !isActive && !isRejected ? "opacity-60 group-hover:opacity-90" : "",
         ].join(" ")}
       >
         <span className="truncate max-w-[80px]">{candidate.modelLabel}</span>
@@ -109,6 +115,7 @@ function VersionNode({
   const promptNum = promptNumberMap.get(node.version.id) ?? node.depth + 1;
   const leftPad = node.depth * DEPTH_INDENT_PX;
   const label = promptLabel(promptNum, node.version.prompt);
+  const winnerCandidate = candidates.find((c) => c.id === node.version.selectedCandidateId);
 
   // Inactive nodes start collapsed; active node starts expanded
   const [collapsed, setCollapsed] = useState(!isActiveVersion);
@@ -140,6 +147,11 @@ function VersionNode({
         ].join(" ")}
       >
         <span className="flex-1 truncate">{label}</span>
+        {winnerCandidate && (
+          <span className="inline-flex items-center gap-0.5 text-[8px] font-medium text-[var(--color-winner)] bg-[var(--color-winner)]/10 px-1 py-0.5 rounded-full shrink-0">
+            ✓ {winnerCandidate.modelLabel}
+          </span>
+        )}
         {hasCandidates && (
           <ChevronRight
             size={9}
@@ -161,6 +173,7 @@ function VersionNode({
               isLast={i === candidates.length - 1}
               isWinner={c.id === node.version.selectedCandidateId}
               isActive={isActiveVersion && c.id === activeCandidateId}
+              hasWinner={!!node.version.selectedCandidateId}
               onNavigate={(candidateId) =>
                 onNavigateCandidate(node.version.id, candidateId)
               }

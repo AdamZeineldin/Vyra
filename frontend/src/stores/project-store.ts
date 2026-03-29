@@ -14,6 +14,7 @@ interface ProjectStore {
   loadProjects: (userId: string) => Promise<void>;
   createProject: (name: string, userId: string) => Promise<Project | null>;
   deleteProject: (id: string, userId: string) => Promise<void>;
+  updateProjectName: (id: string, name: string) => void;
 }
 
 export const useProjectStore = create<ProjectStore>((set) => ({
@@ -52,9 +53,18 @@ export const useProjectStore = create<ProjectStore>((set) => ({
     }
   },
 
+  updateProjectName: (id, name) => {
+    set((state) => ({
+      projects: state.projects.map((p) =>
+        p.id === id ? { ...p, name } : p
+      ),
+    }));
+  },
+
   deleteProject: async (id, userId) => {
     try {
-      await fetch(`${BACKEND_URL}/projects/${id}?user_id=${encodeURIComponent(userId)}`, { method: "DELETE" });
+      const res = await fetch(`${BACKEND_URL}/projects/${id}?user_id=${encodeURIComponent(userId)}`, { method: "DELETE" });
+      if (!res.ok) throw new Error(`Failed to delete project: ${res.status}`);
       set((state) => ({
         projects: state.projects.filter((p) => p.id !== id),
       }));

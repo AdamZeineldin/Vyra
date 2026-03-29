@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import ReactMarkdown from "react-markdown";
-import { ChevronDown, ChevronUp, Play, Loader2, GitCommitHorizontal } from "lucide-react";
+import { ChevronDown, ChevronUp, Play, Loader2, Eye } from "lucide-react";
 import type { Candidate } from "@/lib/types";
 import { useWorkspaceStore } from "@/stores/workspace-store";
 import { Panel } from "@/components/ui/panel";
@@ -14,7 +14,7 @@ import { FileExplorer } from "./file-explorer";
 import { CodePreview } from "./code-preview";
 import { ConsoleModal } from "./console-modal";
 import { StdinModal } from "./stdin-modal";
-import { GitHubModal } from "@/components/github/github-modal";
+import { HtmlPreviewModal } from "./html-preview-modal";
 import { BACKEND_URL } from "@/lib/config";
 
 const SCORE_LABELS: Record<string, string> = {
@@ -26,6 +26,10 @@ const SCORE_LABELS: Record<string, string> = {
 };
 
 const STDIN_PATTERNS = ["input(", "Scanner(", "readline(", "gets ", "cin >>", "sys.stdin", "STDIN"];
+
+function hasHtml(candidate: Candidate): boolean {
+  return Object.keys(candidate.files).some((p) => p.endsWith(".html"));
+}
 
 function needsStdin(candidate: Candidate): boolean {
   return Object.values(candidate.files).some((f) =>
@@ -67,7 +71,7 @@ export function CandidateCard({
   highlightIfRecommended,
   forceCollapsed = false,
 }: CandidateCardProps) {
-  const { project, candidates: allCandidates } = useWorkspaceStore();
+  const { candidates: allCandidates } = useWorkspaceStore();
   const cardRef = useRef<HTMLDivElement>(null);
   const [selectedFile, setSelectedFile] = useState<string | null>(
     Object.keys(candidate.files)[0] ?? null
@@ -77,14 +81,14 @@ export function CandidateCard({
   const [showScores, setShowScores] = useState(false);
   const [overview, setOverview] = useState<string | null>(null);
   const [overviewStatus, setOverviewStatus] = useState<"not_started" | "generating" | "ready">("not_started");
-  const [githubModalOpen, setGithubModalOpen] = useState(false);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const hasSeenGenerating = useRef(false);
   const [isRunning, setIsRunning] = useState(false);
   const [consoleResult, setConsoleResult] = useState<{
     stdout: string; stderr: string; exit_code: number; duration_ms: number; timed_out: boolean;
   } | null>(null);
   const [showStdinModal, setShowStdinModal] = useState(false);
+  const [showHtmlPreview, setShowHtmlPreview] = useState(false);
   const runtime = useWorkspaceStore((s) => s.project?.runtime ?? "python");
 
   // Poll for comparison overview — only for the selected (winner) card
@@ -201,15 +205,7 @@ export function CandidateCard({
         </div>
 
         <div className="flex items-center gap-1.5">
-          <button
-            onClick={() => setGithubModalOpen(true)}
-            title="Commit to GitHub"
-            aria-label="Commit to GitHub"
-            className="text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] transition-colors duration-fast"
-          >
-            <GitCommitHorizontal size={13} />
-          </button>
-          {showOverride && onSelect && (
+{showOverride && onSelect && (
             <Button variant="ghost" size="sm" onClick={() => onSelect(candidate.id)}>
               Select this instead
             </Button>
@@ -221,6 +217,16 @@ export function CandidateCard({
           )}
           {forceCollapsed && !userExpandedOverride && (
             <Button variant="ghost" size="sm" onClick={() => { setUserExpandedOverride(true); setExpanded(true); }}>View full output</Button>
+          )}
+          {hasHtml(candidate) && (
+            <button
+              onClick={() => setShowHtmlPreview(true)}
+              title="Preview HTML"
+              className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded bg-blue-900/40 border border-blue-800/60 text-blue-400 hover:bg-blue-900/70 transition-colors duration-fast"
+            >
+              <Eye size={10} />
+              Preview
+            </button>
           )}
           <button
             onClick={handleRun}
@@ -368,15 +374,13 @@ export function CandidateCard({
       )}
     </div>
 
-    {githubModalOpen && project && (
-      <GitHubModal
-        mode="commit"
-        files={candidate.files}
-        projectName={project.name}
-        projectId={project.id}
-        onClose={() => setGithubModalOpen(false)}
+    {showHtmlPreview && (
+      <HtmlPreviewModal
+        candidate={candidate}
+        onClose={() => setShowHtmlPreview(false)}
       />
     )}
-    </>
+
+</>
   );
 }
